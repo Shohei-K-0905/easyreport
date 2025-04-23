@@ -5,9 +5,13 @@
 .venv/
 __pycache__/
 *.py[cod]
+*$py.class
 
 # ===== Database =====
 *.db
+*.sqlite
+app.db
+jobs.sqlite
 
 # ===== Logs =====
 *.log
@@ -19,3 +23,10 @@ models/*
 # ===== OS / Editor junk =====
 .DS_Store
 Thumbs.db
+.vscode/
+.idea/
+
+# ===== Virtual environment =====
+venv/
+ENV/
+env/
