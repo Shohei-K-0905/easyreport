@@ -1,0 +1,21 @@
+# ===== Secrets & Environment =====
+.env
+
+# ===== Python =====
+.venv/
+__pycache__/
+*.py[cod]
+
+# ===== Database =====
+*.db
+
+# ===== Logs =====
+*.log
+logs/
+
+# ===== Models (STT/TTS) =====
+models/*
+
+# ===== OS / Editor junk =====
+.DS_Store
+Thumbs.db

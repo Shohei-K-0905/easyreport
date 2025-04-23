@@ -1,0 +1,11 @@
+Flask>=3.0
+SQLAlchemy>=2.0
+APScheduler>=3.10
+requests
+python-dotenv
+pyttsx3           # TTS
+vosk              # STT（モデルは手動DL）
+msal              # Microsoft Graph 認証
+pandas            # Excel 操作補助
+openpyxl          # ↑のドライバ
+pytest            # テスト用
