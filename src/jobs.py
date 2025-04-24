@@ -9,6 +9,8 @@ from models import Notification, TPEntry, FormSubmission
 from openpyxl import load_workbook
 import logging
 from logging import getLogger
+import subprocess
+import sys
 
 logging.basicConfig(level=logging.INFO)
 logger = getLogger(__name__)
@@ -86,3 +88,29 @@ def voice_dialog_job(schedule_id: int, prompts: list[str]) -> dict[str, str]:
     # return run_voice_dialog(schedule_id, prompts)
     logger.warning("run_voice_dialog is currently disabled.") # Placeholder log
     return {}
+
+
+def open_local_file(file_path: str):
+    """
+    Opens a local file using the default system application.
+    """
+    if not file_path or not os.path.exists(file_path):
+        print(f"Error: File path '{file_path}' is invalid or does not exist.")
+        return
+
+    try:
+        if sys.platform == "darwin":  # macOS
+            subprocess.run(["open", file_path], check=True)
+            print(f"Opened file: {file_path}")
+        elif sys.platform == "win32": # Windows
+            # Note: os.startfile might not be available on all systems
+            # Consider using subprocess.run(['start', '', file_path], shell=True) as alternative
+            os.startfile(file_path)
+            print(f"Opened file: {file_path}")
+        else: # Linux and other Unix-like
+            subprocess.run(["xdg-open", file_path], check=True)
+            print(f"Opened file: {file_path}")
+    except FileNotFoundError:
+        print(f"Error: Command 'open' (macOS), 'start' (Windows), or 'xdg-open' (Linux) not found.")
+    except Exception as e:
+        print(f"Error opening file '{file_path}': {e}")

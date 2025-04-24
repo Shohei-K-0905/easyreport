@@ -26,6 +26,10 @@
                 <label for="interval_minutes" class="form-label">Interval (minutes)</label>
                 <input type="number" class="form-control" id="interval_minutes" name="interval_minutes" min="1" required>
             </div>
+            <div class="mb-3">
+                <label for="excel_path" class="form-label">Excel Path (optional)</label>
+                <input type="text" class="form-control" id="excel_path" name="excel_path" placeholder="/path/to/your/file.xlsx">
+            </div>
             <button type="submit" class="btn btn-primary">追加</button>
         </form>
 
@@ -37,6 +41,7 @@
                     <th>ID</th>
                     <th>説明</th>
                     <th>Interval (minutes)</th>
+                    <th>Excel Path</th>
                     <th>状態</th>
                     <th>操作</th>
                 </tr>
@@ -44,7 +49,7 @@
             <tbody id="schedule-list">
                 <!-- スケジュールはJavaScriptで動的に挿入されます -->
                 <tr>
-                    <td colspan="5" class="text-center">読み込み中...</td>
+                    <td colspan="6" class="text-center">読み込み中...</td>
                 </tr>
             </tbody>
         </table>
@@ -68,6 +73,10 @@
                         <div class="mb-3">
                             <label for="edit-interval_minutes" class="form-label">Interval (minutes)</label>
                             <input type="number" class="form-control" id="edit-interval_minutes" min="1" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="edit-excel_path" class="form-label">Excel Path (optional)</label>
+                            <input type="text" class="form-control" id="edit-excel_path">
                         </div>
                     </form>
                 </div>

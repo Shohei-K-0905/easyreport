@@ -16,9 +16,10 @@ class Schedule(Base):
     description = Column(Text)
     cron_expr = Column(String, nullable=True)
     interval_minutes = Column(Integer, nullable=False, default=0)
-    next_run_time = Column(DateTime)
-    last_run_time = Column(DateTime)
-    is_active = Column(Boolean, nullable=False, default=True)
+    excel_path = Column(String, nullable=True) # Path to the local Excel file
+    next_run_time = Column(DateTime, nullable=True)
+    last_run_time = Column(DateTime, nullable=True)
+    is_active = Column(Boolean, default=True)
 
 class VoiceSession(Base):
     __tablename__ = "voice_sessions"

@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from db import SessionLocal, engine, Base
 from models import Schedule
-from src.jobs import play_alert_sound, open_google_form
+from src.jobs import play_alert_sound, open_local_file, open_google_form
 from config import settings
 
 # --- Logging Setup ---
@@ -47,8 +47,10 @@ def add_or_update_jobs_for_schedule(db_schedule: Schedule):
     """Adds or updates APScheduler jobs for a given schedule using IntervalTrigger."""
     job_id_alert = f'alert_{db_schedule.id}'
     job_id_form = f'form_{db_schedule.id}'
+    job_id_open_file = f'{db_schedule.id}_open_file'
     job_name_alert = f"Alert Sound for {db_schedule.description}"
     job_name_form = f"Open Google Form for {db_schedule.description}"
+    job_name_open_file = f"Open file for Schedule {db_schedule.id}"
 
     # Ensure interval is valid before creating trigger
     if not db_schedule.interval_minutes or db_schedule.interval_minutes <= 0:
@@ -78,6 +80,24 @@ def add_or_update_jobs_for_schedule(db_schedule: Schedule):
             replace_existing=True
         )
         logger.info(f"Scheduled open form job '{job_id_form}' for schedule {db_schedule.id} with interval: {db_schedule.interval_minutes} minutes")
+
+        # Add job to open excel file if path is provided
+        if db_schedule.excel_path:
+            scheduler.add_job(
+                open_local_file,
+                trigger=trigger,
+                args=[db_schedule.excel_path],
+                id=job_id_open_file,
+                name=job_name_open_file,
+                replace_existing=True,
+            )
+            logger.info(f"Scheduled file open job {job_id_open_file} for schedule {db_schedule.id} with interval {db_schedule.interval_minutes} minutes.")
+        else:
+            # If excel_path was removed, remove the corresponding job if it exists
+            if scheduler.get_job(job_id_open_file):
+                scheduler.remove_job(job_id_open_file)
+                logger.info(f"Removed file open job {job_id_open_file} as path is now empty.")
+
         return True # Indicate success
     except Exception as e:
         logger.error(f"Error adding/updating jobs for schedule {db_schedule.id}: {e}", exc_info=True)
@@ -90,6 +110,7 @@ def remove_jobs_for_schedule(schedule_id: int):
     """Removes APScheduler jobs associated with a schedule ID."""
     job_id_alert = f'alert_{schedule_id}'
     job_id_form = f'form_{schedule_id}'
+    job_id_open_file = f'{schedule_id}_open_file'
     try:
         scheduler.remove_job(job_id_alert)
         logger.info(f"Removed alert job {job_id_alert}")
@@ -105,6 +126,14 @@ def remove_jobs_for_schedule(schedule_id: int):
         pass
     except Exception as e:
         logger.error(f"Error removing form job {job_id_form}: {e}")
+
+    try:
+        scheduler.remove_job(job_id_open_file)
+        logger.info(f"Removed file open job {job_id_open_file}")
+    except JobLookupError:
+        pass
+    except Exception as e:
+        logger.error(f"Error removing file open job {job_id_open_file}: {e}")
 
 
 # --- Initial Job Scheduling (on startup) ---
@@ -152,7 +181,8 @@ def get_schedules():
                 'interval_minutes': s.interval_minutes,
                 'is_active': s.is_active,
                 'next_run_time': scheduler.get_job(f'alert_{s.id}').next_run_time.isoformat() if s.is_active and scheduler.get_job(f'alert_{s.id}') else None,
-                'last_run_time': s.last_run_time.isoformat() if s.last_run_time else None
+                'last_run_time': s.last_run_time.isoformat() if s.last_run_time else None,
+                'excel_path': s.excel_path
             }
             for s in schedules
         ])
@@ -170,6 +200,7 @@ def add_schedule():
 
     description = data['description']
     interval_minutes = data.get('interval_minutes')
+    excel_path = data.get('excel_path')
 
     # Validate interval
     if not isinstance(interval_minutes, int) or interval_minutes <= 0:
@@ -181,7 +212,8 @@ def add_schedule():
             description=description,
             interval_minutes=interval_minutes, # Save interval
             cron_expr=None, # Clear cron expression when using interval
-            is_active=True # Default to active
+            is_active=True, # Default to active
+            excel_path=excel_path
         )
         db.add(new_schedule)
         db.commit()
@@ -199,7 +231,8 @@ def add_schedule():
             "id": new_schedule.id,
             "description": new_schedule.description,
             "interval_minutes": new_schedule.interval_minutes,
-            "is_active": new_schedule.is_active
+            "is_active": new_schedule.is_active,
+            "excel_path": new_schedule.excel_path
         }), 201
     except Exception as e:
         db.rollback()
@@ -217,6 +250,7 @@ def update_schedule(schedule_id):
     description = data.get('description')
     interval_minutes = data.get('interval_minutes') # Get interval
     is_active = data.get('is_active')
+    excel_path = data.get('excel_path')
 
     # Validate interval if provided
     if interval_minutes is not None and (not isinstance(interval_minutes, int) or interval_minutes <= 0):
@@ -228,24 +262,29 @@ def update_schedule(schedule_id):
         if not schedule:
             abort(404, description="Schedule not found")
 
-        updated = False
-        reschedule_needed = False
+        update_data = data
 
-        if description is not None and schedule.description != description:
-            schedule.description = description
-            updated = True
-        # Update interval_minutes if provided
-        if interval_minutes is not None and schedule.interval_minutes != interval_minutes:
-            schedule.interval_minutes = interval_minutes
-            schedule.cron_expr = None # Clear cron when interval is set
-            updated = True
-            reschedule_needed = True
-        if is_active is not None and schedule.is_active != is_active:
-            schedule.is_active = is_active
-            updated = True
-            reschedule_needed = True
+        # Handle potential excel_path removal
+        excel_path_provided = 'excel_path' in update_data
 
-        if updated:
+        for key, value in update_data.items():
+            setattr(schedule, key, value)
+
+        # If excel_path wasn't explicitly provided in the update, but the field exists,
+        # assume the user wants to clear it (set to None).
+        if not excel_path_provided and hasattr(schedule, 'excel_path'):
+            setattr(schedule, 'excel_path', None)
+
+        # Recalculate or update job if interval or active status changes
+        needs_job_update = False
+        if 'interval_minutes' in update_data or 'is_active' in update_data or 'excel_path' in update_data:
+            needs_job_update = True
+
+        # If schedule is being deactivated, remove jobs
+        if is_active is not None and not is_active:
+            remove_jobs_for_schedule(schedule_id)
+
+        if needs_job_update:
             # Remove existing jobs first if they exist
             remove_jobs_for_schedule(schedule_id)
 
@@ -260,15 +299,16 @@ def update_schedule(schedule_id):
             else:
                 logger.info(f"Jobs for schedule {schedule_id} remain removed (inactive or invalid interval). Active: {schedule.is_active}, Interval: {schedule.interval_minutes}")
 
-            db.commit()
-            db.refresh(schedule)
-            logger.info(f"Updated schedule {schedule_id}: Active={schedule.is_active}, Interval={schedule.interval_minutes}")
+        db.commit()
+        db.refresh(schedule)
+        logger.info(f"Updated schedule {schedule_id}: Active={schedule.is_active}, Interval={schedule.interval_minutes}")
 
         return jsonify({
             "id": schedule.id,
             "description": schedule.description,
             "interval_minutes": schedule.interval_minutes,
-            "is_active": schedule.is_active
+            "is_active": schedule.is_active,
+            "excel_path": schedule.excel_path
         })
     except Exception as e:
         db.rollback()
