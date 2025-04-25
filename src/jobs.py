@@ -11,6 +11,8 @@ import logging
 from logging import getLogger
 import subprocess
 import sys
+import platform
+import dotenv
 
 logging.basicConfig(level=logging.INFO)
 logger = getLogger(__name__)
@@ -90,27 +92,41 @@ def voice_dialog_job(schedule_id: int, prompts: list[str]) -> dict[str, str]:
     return {}
 
 
-def open_local_file(file_path: str):
-    """
-    Opens a local file using the default system application.
-    """
-    if not file_path or not os.path.exists(file_path):
-        print(f"Error: File path '{file_path}' is invalid or does not exist.")
+def open_local_file(filename_from_db: str):
+    """指定されたファイル名のファイルを、環境変数で指定されたベースパスを元に開く"""
+    base_path = os.getenv('EXCEL_BASE_PATH') # 環境変数からベースパスを取得
+
+    if not base_path:
+        logger.error("Error: EXCEL_BASE_PATH environment variable is not set in .env file.")
+        return # ベースパスが設定されていなければエラーログを出して終了
+
+    if not filename_from_db: # ファイル名が空の場合のガード処理を追加
+        logger.warning("No Excel filename provided for this schedule. Skipping file open.")
+        return
+
+    # ベースパスとDBからのファイル名を結合して絶対パスを作成
+    # os.path.join は OS に依存しないパス結合を行う
+    absolute_file_path = os.path.join(base_path, filename_from_db)
+
+    logger.info(f"Attempting to open file: {absolute_file_path}")
+
+    if not os.path.exists(absolute_file_path):
+        logger.error(f"Error: File path '{absolute_file_path}' is invalid or does not exist.")
         return
 
     try:
-        if sys.platform == "darwin":  # macOS
-            subprocess.run(["open", file_path], check=True)
-            print(f"Opened file: {file_path}")
-        elif sys.platform == "win32": # Windows
-            # Note: os.startfile might not be available on all systems
-            # Consider using subprocess.run(['start', '', file_path], shell=True) as alternative
-            os.startfile(file_path)
-            print(f"Opened file: {file_path}")
-        else: # Linux and other Unix-like
-            subprocess.run(["xdg-open", file_path], check=True)
-            print(f"Opened file: {file_path}")
+        system = platform.system()
+        if system == "Windows":
+            # os.startfile(absolute_file_path) # 代替案
+            subprocess.run(['start', '', absolute_file_path], check=True, shell=True)
+        elif system == "Darwin":  # macOS
+            subprocess.run(['open', absolute_file_path], check=True)
+        else:  # Linuxなど
+            subprocess.run(['xdg-open', absolute_file_path], check=True)
+        logger.info(f"Opened file: {absolute_file_path}")
     except FileNotFoundError:
-        print(f"Error: Command 'open' (macOS), 'start' (Windows), or 'xdg-open' (Linux) not found.")
+        logger.error(f"Error: The file '{absolute_file_path}' was not found.")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Error opening file '{absolute_file_path}': {e}")
     except Exception as e:
-        print(f"Error opening file '{file_path}': {e}")
+        logger.error(f"An unexpected error occurred while opening file '{absolute_file_path}': {e}")

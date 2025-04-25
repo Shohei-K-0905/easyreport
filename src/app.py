@@ -3,6 +3,9 @@ import sys
 import logging
 logger = logging.getLogger(__name__)
 
+from dotenv import load_dotenv
+load_dotenv()
+
 # ensure project root in path for imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -349,4 +352,5 @@ if __name__ == '__main__':
     scheduler.start()
     logger.info("Scheduler started.")
     logger.info("Starting Flask app...")
-    app.run(host='0.0.0.0', port=5001, debug=True)
+    # Run Flask app, disable reloader to prevent duplicate jobs in debug mode
+    app.run(debug=True, host='0.0.0.0', port=5001, use_reloader=False) # use_reloader=False を追加

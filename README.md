@@ -82,3 +82,23 @@ Vosk JP 小型モデル (vosk-model-small-ja-0.22) を models/ に展開後、st
 
 将来 PostgreSQL へ切替え → SQLAlchemy URL を postgresql+psycopg:// に変更し Alembic でマイグレート。
 
+## 6. 設定
+
+### ローカル Excel ファイルを開く機能の設定
+
+スケジュール実行時に特定のローカル Excel ファイルを開く機能を利用するには、以下の設定が必要です。この設定は、異なる OS (macOS, Windows) や異なるユーザー環境でアプリケーションを利用する場合に特に重要です。
+
+1.  **ベースパスの設定 (`.env` ファイル):**
+    *   各ユーザーは、Excel ファイルを保存しておくフォルダ（ベースパス）を自分のコンピュータ上に決定します。
+    *   そのフォルダの**絶対パス**を、プロジェクトルートにある `.env` ファイルに `EXCEL_BASE_PATH` という名前の環境変数として追加します。ファイルが存在しない場合は作成してください。
+    *   例:
+        *   macOS の場合: `EXCEL_BASE_PATH=/Users/your_username/Documents/EasyReportFiles`
+        *   Windows の場合: `EXCEL_BASE_PATH=C:\Users\your_username\Documents\EasyReportFiles`
+        *   **注意:** `.env` ファイルは `.gitignore` に含まれており、Git リポジトリにはコミットされません。各ユーザーが自分の環境に合わせて設定する必要があります。
+
+2.  **UI でのファイル名入力:**
+    *   アプリケーションの UI (スケジュール追加/編集フォーム) の「Excel Filename」フィールドには、上記で設定したベースパス（`EXCEL_BASE_PATH` で指定したフォルダ）からの**ファイル名のみ**を入力します。
+    *   例: `monthly_report.xlsx`, `data/summary.xlsx`
+    *   絶対パス（例: `/Users/.../file.xlsx` や `C:\...`) を入力する必要はありません。
+
+この設定により、アプリケーションは実行時に `.env` ファイルからベースパスを読み込み、データベースに保存されているファイル名と結合して、各ユーザーの環境で正しいファイルパスを特定し、Excel ファイルを開くことができます。
