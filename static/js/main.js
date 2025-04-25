@@ -20,7 +20,7 @@ document.addEventListener('DOMContentLoaded', function() {
             renderSchedules(schedules);
         } catch (error) {
             console.error('Error loading schedules:', error);
-            scheduleListBody.innerHTML = '<tr><td colspan="6" class="text-center text-danger">スケジュールの読み込みに失敗しました。</td></tr>';
+            scheduleListBody.innerHTML = '<tr><td colspan="7" class="text-center text-danger">スケジュールの読み込みに失敗しました。</td></tr>';
         }
     }
 
@@ -28,7 +28,7 @@ document.addEventListener('DOMContentLoaded', function() {
     function renderSchedules(schedules) {
         scheduleListBody.innerHTML = ''; // 一旦クリア
         if (schedules.length === 0) {
-            scheduleListBody.innerHTML = '<tr><td colspan="6" class="text-center">登録されているスケジュールはありません。</td></tr>';
+            scheduleListBody.innerHTML = '<tr><td colspan="7" class="text-center">登録されているスケジュールはありません。</td></tr>';
             return;
         }
 
@@ -39,13 +39,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 <td>${escapeHtml(schedule.description)}</td>
                 <td>${schedule.interval_minutes ?? 'N/A'}</td>
                 <td>${escapeHtml(schedule.excel_path) || '-'}</td>
+                <td>${schedule.google_form_url ? `<a href="${schedule.google_form_url}" target="_blank">Link</a>` : ''}</td>
                 <td>
                     <span class="badge ${schedule.is_active ? 'bg-success' : 'bg-secondary'}">
                         ${schedule.is_active ? '有効' : '無効'}
                     </span>
                 </td>
                 <td class="action-buttons">
-                    <button class="btn btn-sm btn-warning edit-btn" data-id="${schedule.id}" data-description="${escapeHtml(schedule.description)}" data-interval="${schedule.interval_minutes ?? ''}" data-active="${schedule.is_active}" data-excel-path="${escapeHtml(schedule.excel_path)}">編集</button>
+                    <button class="btn btn-sm btn-warning edit-btn" data-id="${schedule.id}" data-description="${escapeHtml(schedule.description)}" data-interval="${schedule.interval_minutes ?? ''}" data-active="${schedule.is_active}" data-excel-path="${escapeHtml(schedule.excel_path)}" data-google-form-url="${schedule.google_form_url}">編集</button>
                     <button class="btn btn-sm ${schedule.is_active ? 'btn-secondary' : 'btn-success'} toggle-btn" data-id="${schedule.id}" data-active="${schedule.is_active}">${schedule.is_active ? '無効化' : '有効化'}</button>
                     <button class="btn btn-sm btn-danger delete-btn" data-id="${schedule.id}">削除</button>
                 </td>
@@ -60,6 +61,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const description = document.getElementById('description').value;
         const interval_minutes = parseInt(document.getElementById('interval_minutes').value, 10);
         const excel_path = document.getElementById('excel_path').value;
+        const google_form_url = document.getElementById('google_form_url').value;
 
         // Basic validation
         if (isNaN(interval_minutes) || interval_minutes <= 0) {
@@ -73,7 +75,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ description, interval_minutes, excel_path }),
+                body: JSON.stringify({ description, interval_minutes, excel_path, google_form_url }),
             });
             if (!response.ok) {
                  const errorData = await response.json();
@@ -98,6 +100,7 @@ document.addEventListener('DOMContentLoaded', function() {
             document.getElementById('edit-description').value = target.dataset.description;
             document.getElementById('edit-interval_minutes').value = target.dataset.interval;
             document.getElementById('edit-excel_path').value = target.dataset.excelPath;
+            document.getElementById('edit-google_form_url').value = target.dataset.googleFormUrl;
             editModal.show();
         }
 
@@ -149,6 +152,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const description = document.getElementById('edit-description').value;
         const interval_minutes = parseInt(document.getElementById('edit-interval_minutes').value, 10);
         const excel_path = document.getElementById('edit-excel_path').value;
+        const google_form_url = document.getElementById('edit-google_form_url').value;
 
         // Basic validation
         if (isNaN(interval_minutes) || interval_minutes <= 0) {
@@ -162,7 +166,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ description, interval_minutes, excel_path }),
+                body: JSON.stringify({ description, interval_minutes, excel_path, google_form_url }),
             });
             if (!response.ok) {
                 const errorData = await response.json();

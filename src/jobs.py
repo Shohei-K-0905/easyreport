@@ -56,20 +56,44 @@ def play_alert_sound():
         # Consider adding a fallback mechanism or just logging the error.
 
 
-def open_google_form():
-    """Opens the Google Form in the default web browser."""
-    if not settings.GOOGLE_FORM_ID:
-        logger.error("GOOGLE_FORM_ID is not set in the environment variables.")
+def open_google_form(url: str):
+    """Opens the provided URL in the default web browser using OS-specific commands."""
+    logger.info(f"--- Entering open_google_form ---")
+    logger.info(f"Received URL argument: {url}")
+
+    if not url:
+        logger.warning("No URL provided to open_google_form, skipping.")
         return
 
-    # Construct the viewform URL
-    form_url = f"https://docs.google.com/forms/d/e/{settings.GOOGLE_FORM_ID}/viewform"
+    logger.info(f"Attempting to open URL: {url}")
+    system = platform.system()
     try:
-        logger.info(f"Opening Google Form URL: {form_url}")
-        webbrowser.open(form_url, new=2) # new=2 opens in a new tab, if possible
-        logger.info("Google Form opened successfully.")
+        if system == "Darwin": # macOS
+            logger.info("Detected macOS. Using 'open' command.")
+            result = subprocess.run(['open', url], check=True, capture_output=True, text=True)
+            logger.info(f"'open {url}' command executed.")
+        elif system == "Windows":
+            logger.info("Detected Windows. Using 'start' command.")
+            # 'start' needs shell=True on Windows
+            result = subprocess.run(['start', url], shell=True, check=True, capture_output=True, text=True)
+            logger.info(f"'start {url}' command executed.")
+        else: # Other OS (Linux, etc.)
+            logger.info(f"Detected {system}. Falling back to webbrowser.open.")
+            opened = webbrowser.open(url)
+            if opened:
+                logger.info(f"webbrowser.open reported success for URL: {url}")
+            else:
+                # This fallback might not work reliably from background threads
+                logger.warning(f"webbrowser.open reported failure for URL: {url}. This might be expected in background jobs on {system}.")
+
+    except FileNotFoundError:
+        command = "open" if system == "Darwin" else "start" if system == "Windows" else "webbrowser"
+        logger.error(f"Command '{command}' not found or webbrowser unavailable.")
+    except subprocess.CalledProcessError as e:
+        command = "open" if system == "Darwin" else "start"
+        logger.error(f"'{command} {url}' command failed with error code {e.returncode}: {e.stderr}")
     except Exception as e:
-        logger.error(f"Could not open web browser for URL '{form_url}': {e}")
+        logger.error(f"An unexpected error occurred while trying to open the URL: {e}", exc_info=True)
 
 
 def report_job(schedule_id: int, prompts: list[str]):

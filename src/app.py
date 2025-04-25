@@ -15,7 +15,6 @@ from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.jobstores.base import JobLookupError
 from sqlalchemy.orm import Session
-
 from db import SessionLocal, engine, Base
 from models import Schedule
 from src.jobs import play_alert_sound, open_local_file, open_google_form
@@ -47,73 +46,80 @@ scheduler = BackgroundScheduler(jobstores=jobstores)
 
 # --- Helper Functions for Job Management ---
 def add_or_update_jobs_for_schedule(db_schedule: Schedule):
-    """Adds or updates APScheduler jobs for a given schedule using IntervalTrigger."""
+    """Adds or updates APScheduler jobs based on the Schedule object."""
     job_id_alert = f'alert_{db_schedule.id}'
     job_id_form = f'form_{db_schedule.id}'
-    job_id_open_file = f'{db_schedule.id}_open_file'
-    job_name_alert = f"Alert Sound for {db_schedule.description}"
-    job_name_form = f"Open Google Form for {db_schedule.description}"
-    job_name_open_file = f"Open file for Schedule {db_schedule.id}"
+    job_id_file = f'{db_schedule.id}_open_file'
+    job_name_alert = f'Alert Sound for {db_schedule.description}'
+    job_name_form = f'Open Google Form for {db_schedule.description}'
+    job_name_file = f'Open file for Schedule {db_schedule.id}'
 
-    # Ensure interval is valid before creating trigger
-    if not db_schedule.interval_minutes or db_schedule.interval_minutes <= 0:
-        logger.error(f"Invalid interval_minutes ({db_schedule.interval_minutes}) for schedule {db_schedule.id}. Cannot schedule.")
-        return False
+    # Remove existing jobs first to ensure clean state
+    if scheduler.get_job(job_id_alert):
+        scheduler.remove_job(job_id_alert)
+        logger.info(f"Removed existing alert job {job_id_alert}")
+    if scheduler.get_job(job_id_form):
+        scheduler.remove_job(job_id_form)
+        logger.info(f"Removed existing form job {job_id_form}")
+    if scheduler.get_job(job_id_file):
+        scheduler.remove_job(job_id_file)
+        logger.info(f"Removed existing file open job {job_id_file}")
 
-    # Use IntervalTrigger
-    trigger = IntervalTrigger(minutes=db_schedule.interval_minutes)
-
-    try:
+    # Add jobs only if the schedule is active and has a positive interval
+    if db_schedule.is_active and db_schedule.interval_minutes > 0:
+        trigger = IntervalTrigger(minutes=db_schedule.interval_minutes)
+        
         # Schedule alert sound job
         scheduler.add_job(
             play_alert_sound,
             trigger=trigger,
             id=job_id_alert,
             name=job_name_alert,
-            replace_existing=True
+            replace_existing=True # Should be redundant due to removal above, but safe
         )
         logger.info(f"Scheduled alert sound job '{job_id_alert}' for schedule {db_schedule.id} with interval: {db_schedule.interval_minutes} minutes")
 
-        # Schedule opening the Google Form
-        scheduler.add_job(
-            open_google_form,
-            trigger=trigger, # Use the same trigger
-            id=job_id_form,
-            name=job_name_form,
-            replace_existing=True
-        )
-        logger.info(f"Scheduled open form job '{job_id_form}' for schedule {db_schedule.id} with interval: {db_schedule.interval_minutes} minutes")
+        # Schedule Google Form opening job only if URL is provided
+        if db_schedule.google_form_url:
+            form_url_to_schedule = db_schedule.google_form_url
+            logger.info(f"Attempting to schedule open_google_form job '{job_id_form}' with URL: '{form_url_to_schedule}'")
+            scheduler.add_job(
+                'src.jobs:open_google_form',
+                trigger=trigger,
+                id=job_id_form,
+                name=job_name_form,
+                replace_existing=True,
+                args=(form_url_to_schedule,), # <--- 変更点: カンマを追加してタプルにする
+            )
+            logger.info(f"Scheduled open form job '{job_id_form}' for schedule {db_schedule.id} with interval: {db_schedule.interval_minutes} minutes")
+        else:
+             logger.info(f"No Google Form URL provided for schedule {db_schedule.id}, skipping form job.")
 
-        # Add job to open excel file if path is provided
+        # Schedule local file opening job only if excel_path is provided
         if db_schedule.excel_path:
             scheduler.add_job(
                 open_local_file,
                 trigger=trigger,
                 args=[db_schedule.excel_path],
-                id=job_id_open_file,
-                name=job_name_open_file,
+                id=job_id_file,
+                name=job_name_file,
                 replace_existing=True,
             )
-            logger.info(f"Scheduled file open job {job_id_open_file} for schedule {db_schedule.id} with interval {db_schedule.interval_minutes} minutes.")
+            logger.info(f"Scheduled file open job {job_id_file} for schedule {db_schedule.id} with interval {db_schedule.interval_minutes} minutes.")
         else:
             # If excel_path was removed, remove the corresponding job if it exists
-            if scheduler.get_job(job_id_open_file):
-                scheduler.remove_job(job_id_open_file)
-                logger.info(f"Removed file open job {job_id_open_file} as path is now empty.")
+            if scheduler.get_job(job_id_file):
+                scheduler.remove_job(job_id_file)
+                logger.info(f"Removed file open job {job_id_file} as path is now empty.")
 
-        return True # Indicate success
-    except Exception as e:
-        logger.error(f"Error adding/updating jobs for schedule {db_schedule.id}: {e}", exc_info=True)
-        # Attempt to remove potentially partially added jobs to avoid orphans
-        remove_jobs_for_schedule(db_schedule.id)
-        return False # Indicate failure
+    return True # Indicate success
 
 
 def remove_jobs_for_schedule(schedule_id: int):
     """Removes APScheduler jobs associated with a schedule ID."""
     job_id_alert = f'alert_{schedule_id}'
     job_id_form = f'form_{schedule_id}'
-    job_id_open_file = f'{schedule_id}_open_file'
+    job_id_file = f'{schedule_id}_open_file'
     try:
         scheduler.remove_job(job_id_alert)
         logger.info(f"Removed alert job {job_id_alert}")
@@ -131,12 +137,12 @@ def remove_jobs_for_schedule(schedule_id: int):
         logger.error(f"Error removing form job {job_id_form}: {e}")
 
     try:
-        scheduler.remove_job(job_id_open_file)
-        logger.info(f"Removed file open job {job_id_open_file}")
+        scheduler.remove_job(job_id_file)
+        logger.info(f"Removed file open job {job_id_file}")
     except JobLookupError:
         pass
     except Exception as e:
-        logger.error(f"Error removing file open job {job_id_open_file}: {e}")
+        logger.error(f"Error removing file open job {job_id_file}: {e}")
 
 
 # --- Initial Job Scheduling (on startup) ---
@@ -185,7 +191,8 @@ def get_schedules():
                 'is_active': s.is_active,
                 'next_run_time': scheduler.get_job(f'alert_{s.id}').next_run_time.isoformat() if s.is_active and scheduler.get_job(f'alert_{s.id}') else None,
                 'last_run_time': s.last_run_time.isoformat() if s.last_run_time else None,
-                'excel_path': s.excel_path
+                'excel_path': s.excel_path,
+                'google_form_url': s.google_form_url
             }
             for s in schedules
         ])
@@ -198,12 +205,14 @@ def get_schedules():
 @app.route('/api/schedules', methods=['POST'])
 def add_schedule():
     data = request.get_json()
-    if not data or 'description' not in data or 'interval_minutes' not in data:
-        abort(400, description="Missing description or interval_minutes")
-
-    description = data['description']
-    interval_minutes = data.get('interval_minutes')
+    description = data.get('description')
+    interval_minutes = data.get('interval_minutes', 0)
     excel_path = data.get('excel_path')
+    google_form_url = data.get('google_form_url') # Get Google Form URL
+    is_active = data.get('is_active', True)
+
+    if not description:
+        abort(400, description="Missing description")
 
     # Validate interval
     if not isinstance(interval_minutes, int) or interval_minutes <= 0:
@@ -212,11 +221,11 @@ def add_schedule():
     db = SessionLocal()
     try:
         new_schedule = Schedule(
-            description=description,
-            interval_minutes=interval_minutes, # Save interval
-            cron_expr=None, # Clear cron expression when using interval
-            is_active=True, # Default to active
-            excel_path=excel_path
+            description=description, 
+            interval_minutes=interval_minutes,
+            excel_path=excel_path,
+            google_form_url=google_form_url, # Save Google Form URL
+            is_active=is_active
         )
         db.add(new_schedule)
         db.commit()
@@ -235,7 +244,8 @@ def add_schedule():
             "description": new_schedule.description,
             "interval_minutes": new_schedule.interval_minutes,
             "is_active": new_schedule.is_active,
-            "excel_path": new_schedule.excel_path
+            "excel_path": new_schedule.excel_path,
+            "google_form_url": new_schedule.google_form_url
         }), 201
     except Exception as e:
         db.rollback()
@@ -246,45 +256,26 @@ def add_schedule():
 
 @app.route('/api/schedules/<int:schedule_id>', methods=['PUT'])
 def update_schedule(schedule_id):
+    db_schedule = db.query(Schedule).filter(Schedule.id == schedule_id).first()
+    if not db_schedule:
+        return jsonify({"error": "Schedule not found"}), 404
+
     data = request.get_json()
-    if not data:
-        abort(400, description="Missing data")
+    db_schedule.description = data.get('description', db_schedule.description)
+    db_schedule.interval_minutes = data.get('interval_minutes', db_schedule.interval_minutes)
+    db_schedule.excel_path = data.get('excel_path', db_schedule.excel_path) # Allow clearing the path
+    db_schedule.google_form_url = data.get('google_form_url', db_schedule.google_form_url) # Get and update Google Form URL
+    db_schedule.is_active = data.get('is_active', db_schedule.is_active)
 
-    description = data.get('description')
-    interval_minutes = data.get('interval_minutes') # Get interval
-    is_active = data.get('is_active')
-    excel_path = data.get('excel_path')
-
-    # Validate interval if provided
-    if interval_minutes is not None and (not isinstance(interval_minutes, int) or interval_minutes <= 0):
-         abort(400, description="Invalid interval_minutes, must be a positive integer.")
-
-    db = SessionLocal()
     try:
-        schedule = db.query(Schedule).filter(Schedule.id == schedule_id).first()
-        if not schedule:
-            abort(404, description="Schedule not found")
-
-        update_data = data
-
-        # Handle potential excel_path removal
-        excel_path_provided = 'excel_path' in update_data
-
-        for key, value in update_data.items():
-            setattr(schedule, key, value)
-
-        # If excel_path wasn't explicitly provided in the update, but the field exists,
-        # assume the user wants to clear it (set to None).
-        if not excel_path_provided and hasattr(schedule, 'excel_path'):
-            setattr(schedule, 'excel_path', None)
-
+        db.commit()
         # Recalculate or update job if interval or active status changes
         needs_job_update = False
-        if 'interval_minutes' in update_data or 'is_active' in update_data or 'excel_path' in update_data:
+        if 'interval_minutes' in data or 'is_active' in data or 'excel_path' in data or 'google_form_url' in data:
             needs_job_update = True
 
         # If schedule is being deactivated, remove jobs
-        if is_active is not None and not is_active:
+        if db_schedule.is_active is False:
             remove_jobs_for_schedule(schedule_id)
 
         if needs_job_update:
@@ -293,25 +284,23 @@ def update_schedule(schedule_id):
 
             # Add or update jobs based on the new state (active or inactive)
             # Only schedule if active and interval is valid
-            if schedule.is_active and schedule.interval_minutes and schedule.interval_minutes > 0:
-                if not add_or_update_jobs_for_schedule(schedule):
+            if db_schedule.is_active and db_schedule.interval_minutes and db_schedule.interval_minutes > 0:
+                if not add_or_update_jobs_for_schedule(db_schedule):
                     # If scheduling fails after update, rollback or handle error
                     db.rollback()
                     logger.error(f"Failed to reschedule jobs for schedule {schedule_id} after update, rolling back.")
                     abort(500, "Failed to reschedule jobs after update.")
             else:
-                logger.info(f"Jobs for schedule {schedule_id} remain removed (inactive or invalid interval). Active: {schedule.is_active}, Interval: {schedule.interval_minutes}")
+                logger.info(f"Jobs for schedule {schedule_id} remain removed (inactive or invalid interval). Active: {db_schedule.is_active}, Interval: {db_schedule.interval_minutes}")
 
-        db.commit()
-        db.refresh(schedule)
-        logger.info(f"Updated schedule {schedule_id}: Active={schedule.is_active}, Interval={schedule.interval_minutes}")
-
+        logger.info(f"Updated schedule {schedule_id}: Active={db_schedule.is_active}, Interval={db_schedule.interval_minutes}")
         return jsonify({
-            "id": schedule.id,
-            "description": schedule.description,
-            "interval_minutes": schedule.interval_minutes,
-            "is_active": schedule.is_active,
-            "excel_path": schedule.excel_path
+            "id": db_schedule.id,
+            "description": db_schedule.description,
+            "interval_minutes": db_schedule.interval_minutes,
+            "is_active": db_schedule.is_active,
+            "excel_path": db_schedule.excel_path,
+            "google_form_url": db_schedule.google_form_url
         })
     except Exception as e:
         db.rollback()

@@ -17,6 +17,7 @@ class Schedule(Base):
     cron_expr = Column(String, nullable=True)
     interval_minutes = Column(Integer, nullable=False, default=0)
     excel_path = Column(String, nullable=True) # Path to the local Excel file
+    google_form_url = Column(String, nullable=True) # Google Form URL to open
     next_run_time = Column(DateTime, nullable=True)
     last_run_time = Column(DateTime, nullable=True)
     is_active = Column(Boolean, default=True)
