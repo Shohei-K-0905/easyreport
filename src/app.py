@@ -16,8 +16,8 @@ from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.jobstores.base import JobLookupError
 from sqlalchemy.orm import Session
 from db import SessionLocal, engine, Base
-from models import Schedule
-from src.jobs import play_alert_sound, open_local_file, open_google_form
+from models import Schedule, ReportHistory
+from .jobs import play_alert_sound, open_local_file, open_google_form
 from config import settings
 from . import jobs # Import the jobs module
 import pytz # Add pytz import
@@ -248,6 +248,10 @@ def schedule_initial_jobs():
 def index():
     """Serves the main HTML page."""
     return render_template('index.html')
+
+@app.route('/history')
+def history_page():
+    return render_template('history.html')
 
 @app.route('/api/schedules', methods=['GET'])
 def get_schedules():
@@ -486,13 +490,72 @@ def run_schedule_now(schedule_id):
         # 何か一つでも失敗したらエラーレスポンス
         return jsonify({"status": "error", "message": "One or more actions failed.", "details": error_messages}), 500
 
+@app.route('/api/schedules/<int:schedule_id>/report_completed', methods=['POST'])
+def mark_report_completed(schedule_id):
+    db: Session = SessionLocal()
+    try:
+        schedule = db.query(Schedule).filter(Schedule.id == schedule_id).first()
+        if not schedule:
+            logger.warning(f"Attempted to mark report completed for non-existent schedule ID: {schedule_id}")
+            db.close()
+            abort(404, description="Schedule not found")
+
+        # 報告履歴を作成
+        new_history = ReportHistory(schedule_id=schedule_id)
+        db.add(new_history)
+        db.commit()
+        logger.info(f"Report marked as completed for schedule ID: {schedule_id}")
+        return jsonify({"message": f"スケジュール {schedule_id} の報告完了を記録しました。"}), 200
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error marking report completed for schedule ID {schedule_id}: {e}", exc_info=True)
+        return jsonify({"message": "報告完了の記録中にエラーが発生しました。"}), 500
+    finally:
+        db.close()
+
+@app.route('/api/report_history')
+def get_report_history():
+    session = SessionLocal()
+    try:
+        # 履歴をreported_atの降順で取得し、スケジュール情報も結合
+        history_records = (
+            session.query(
+                ReportHistory.id,
+                ReportHistory.schedule_id,
+                ReportHistory.reported_at,
+                Schedule.description.label('schedule_description') # Scheduleのdescriptionを取得
+            )
+            .join(Schedule, ReportHistory.schedule_id == Schedule.id) # Scheduleテーブルと結合
+            .order_by(ReportHistory.reported_at.desc())
+            .all()
+        )
+
+        # クエリ結果を辞書のリストに変換
+        history_list = [
+            {
+                'id': record.id,
+                'schedule_id': record.schedule_id,
+                'reported_at': record.reported_at.isoformat() + 'Z', # ISO 8601 format with Z for UTC
+                'schedule_description': record.schedule_description
+            }
+            for record in history_records
+        ]
+        return jsonify(history_list)
+    except Exception as e:
+        logging.error(f"Error fetching report history: {e}")
+        return jsonify({'error': '履歴の取得中にエラーが発生しました'}), 500
+    finally:
+        session.close()
+
 
 # --- Main Execution --- 
 
 if __name__ == '__main__':
-    logger.info("Application starting...")
-    # schedule_initial_jobs() # Temporarily disable initial job scheduling
-    # logger.info("Scheduler started.") # Removed misplaced log
-    logger.info("Starting Flask app...")
-    # Run Flask app, disable reloader to prevent duplicate jobs in debug mode
-    app.run(debug=True, host='0.0.0.0', port=5001, use_reloader=False) # Changed port to 5001
+    logger.info(f"Starting Flask app on port {settings.PORT}...")
+    # Flask アプリケーションを実行
+    # host='0.0.0.0' は全てのネットワークインターフェースで待ち受ける
+    # debug=True にすると、コード変更時に自動リロードされ、デバッグ情報が表示される
+    # use_reloader=False は、APSchedulerとの二重起動を防ぐために重要
+    app.run(host='127.0.0.1', port=settings.PORT, debug=True, use_reloader=False)
+    logger.info("Flask app started.")

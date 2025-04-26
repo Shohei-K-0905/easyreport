@@ -20,7 +20,7 @@ document.addEventListener('DOMContentLoaded', function() {
             renderSchedules(schedules);
         } catch (error) {
             console.error('Error loading schedules:', error);
-            scheduleListBody.innerHTML = '<tr><td colspan="7" class="text-center text-danger">スケジュールの読み込みに失敗しました。</td></tr>';
+            scheduleListBody.innerHTML = '<tr><td colspan="8" class="text-center text-danger">スケジュールの読み込みに失敗しました。</td></tr>';
         }
     }
 
@@ -28,7 +28,7 @@ document.addEventListener('DOMContentLoaded', function() {
     function renderSchedules(schedules) {
         scheduleListBody.innerHTML = ''; // 一旦クリア
         if (schedules.length === 0) {
-            scheduleListBody.innerHTML = '<tr><td colspan="7" class="text-center">登録されているスケジュールはありません。</td></tr>';
+            scheduleListBody.innerHTML = '<tr><td colspan="8" class="text-center">登録されているスケジュールはありません。</td></tr>';
             return;
         }
 
@@ -50,6 +50,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     <button class="btn btn-warning btn-sm edit-button" data-schedule-id="${schedule.id}" data-bs-toggle="modal" data-bs-target="#editScheduleModal">編集</button>
                     <button class="btn btn-danger btn-sm delete-button" data-schedule-id="${schedule.id}">削除</button>
                     <button class="btn ${toggleClass} btn-sm toggle-active-button" data-schedule-id="${schedule.id}" data-is-active="${schedule.is_active}">${toggleButtonText}</button>
+                </td>
+                <td>
+                    <button class="btn btn-info btn-sm report-completed-button" data-schedule-id="${schedule.id}">報告完了</button>
                 </td>
             `;
             scheduleListBody.appendChild(row);
@@ -199,32 +202,48 @@ document.addEventListener('DOMContentLoaded', function() {
                 // バックエンドに即時実行リクエストを送る
                 fetch(`/api/schedules/${scheduleId}/run_now`, { method: 'POST' })
                     .then(response => {
-                         console.log("Fetch response received:", response.status); // ★デバッグログ追加
+                         if (!response.ok) {
+                            // エラーレスポンスからメッセージを取得試行
+                            return response.json().then(err => { throw new Error(err.message || `HTTP error! status: ${response.status}`) });
+                        }
+                        return response.json(); // 成功レスポンスをJSONとして解析
+                    })
+                    .then(data => {
+                         console.log("Run now successful:", data); // ★デバッグログ追加
+                        alert(data.message || '即時実行をリクエストしました。'); // 成功メッセージ表示
+                        // ここではリストの再読み込みは不要かもしれない
+                    })
+                    .catch(error => {
+                        console.error('Error running schedule now:', error); // ★デバッグログ追加
+                        alert(`即時実行リクエストに失敗しました: ${error.message}`);
+                    });
+            }
+        }
+        // 報告完了ボタン
+        else if (target.classList.contains('report-completed-button')) {
+            console.log("Report completed button action for", scheduleId);
+            if (confirm(`スケジュール ID: ${scheduleId} の報告を完了として記録しますか？`)) {
+                fetch(`/api/schedules/${scheduleId}/report_completed`, { method: 'POST' })
+                    .then(response => {
                         if (!response.ok) {
-                           // エラーメッセージをサーバーから取得試行
-                            console.error("Fetch error status:", response.status);
-                            return response.json().then(err => {
-                                console.error("Error details from server:", err);
-                                throw new Error(err.error || 'Immediate run failed')
-                            });
+                            return response.json().then(err => { throw new Error(err.message || `HTTP error! status: ${response.status}`) });
                         }
                         return response.json();
                     })
                     .then(data => {
-                        // 成功した場合（任意でメッセージ表示）
-                        console.log("Run now successful:", data); // ★デバッグログ追加
-                        alert(`スケジュール ID: ${scheduleId} の即時報告を開始しました。 (${data.message || ''})`);
+                        alert(data.message || '報告完了を記録しました。');
+                        // ボタンを無効化するなど、UIフィードバックを追加しても良い
+                        // target.disabled = true;
+                        // target.textContent = '記録済み';
+                        // 必要に応じてリストを再読み込み loadSchedules();
                     })
                     .catch(error => {
-                        console.error('Error running schedule now:', error); // ★デバッグログ追加
-                        alert(`即時報告の実行に失敗しました: ${error.message}`);
+                        console.error('Error marking report as completed:', error);
+                        alert(`報告完了の記録に失敗しました: ${error.message}`);
                     });
-            } else {
-                 console.log("Run now cancelled by user."); // ★デバッグログ追加
             }
-        } else {
-             console.log("Clicked button doesn't match known actions:", target.classList);
         }
+
     });
 
     // --- 編集モーダルの保存ボタン --- 

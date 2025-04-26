@@ -13,21 +13,24 @@
 </head>
 <body>
     <div class="container">
-        <h1>楽ちん報告</h1>
+        <h1 class="my-4">楽ちん定時報告</h1>
+        <div class="mb-3">
+            <a href="/history" class="btn btn-info">報告履歴を見る</a>
+        </div>
 
         <!-- スケジュール追加フォーム -->
         <h2>定時報告を追加</h2>
         <form id="add-schedule-form" class="mb-4 p-3 border rounded">
             <div class="mb-3">
-                <label for="description" class="form-label">内容:</label>
+                <label for="description" class="form-label">スケジュール名:</label>
                 <input type="text" class="form-control" id="description" name="description" required>
             </div>
             <div class="mb-3">
-                <label for="interval_minutes" class="form-label">間隔 (minutes)</label>
+                <label for="interval_minutes" class="form-label">アラーム間隔 (分)</label>
                 <input type="number" class="form-control" id="interval_minutes" name="interval_minutes" min="1" required>
             </div>
             <div class="mb-3">
-                <label for="excel_path" class="form-label">Excelファイル名 (optional, in Base Path)</label>
+                <label for="excel_path" class="form-label">Excelファイル名または絶対パス</label>
                 <input type="text" class="form-control" id="excel_path" name="excel_path" placeholder="e.g., monthly_report.xlsx">
             </div>
             <div class="mb-3">
@@ -43,18 +46,19 @@
             <thead>
                 <tr>
                     <th>ID</th>
-                    <th>内容</th>
-                    <th>間隔 (minutes)</th>
-                    <th>Excelファイル名</th>
+                    <th>スケジュール名</th>
+                    <th>アラーム間隔 (分)</th>
+                    <th>Excelファイル名または絶対パス</th>
                     <th>Google Form URL</th>
                     <th>状態</th>
                     <th>操作</th>
+                    <th>報告</th>
                 </tr>
             </thead>
             <tbody id="schedule-list">
                 <!-- スケジュールはJavaScriptで動的に挿入されます -->
                 <tr>
-                    <td colspan="7" class="text-center">読み込み中...</td>
+                    <td colspan="8" class="text-center">読み込み中...</td>
                 </tr>
             </tbody>
         </table>

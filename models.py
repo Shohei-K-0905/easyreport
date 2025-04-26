@@ -1,6 +1,7 @@
 from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean
 from sqlalchemy.sql import func
 from db import Base
+import datetime
 
 class ServiceConfig(Base):
     __tablename__ = "service_configs"
@@ -93,3 +94,9 @@ class FormSubmission(Base):
     payload_json = Column(Text, nullable=False)
     submitted_at = Column(DateTime, server_default=func.now())
     status = Column(String, default="SUCCESS")
+
+class ReportHistory(Base):
+    __tablename__ = "report_history"
+    id = Column(Integer, primary_key=True, index=True)
+    schedule_id = Column(Integer, ForeignKey("schedules.id", ondelete="CASCADE"), nullable=False)
+    reported_at = Column(DateTime, default=datetime.datetime.now(datetime.timezone.utc))
