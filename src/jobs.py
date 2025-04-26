@@ -117,20 +117,24 @@ def voice_dialog_job(schedule_id: int, prompts: list[str]) -> dict[str, str]:
 
 
 def open_local_file(filename_from_db: str):
-    """指定されたファイル名のファイルを、環境変数で指定されたベースパスを元に開く"""
-    base_path = os.getenv('EXCEL_BASE_PATH') # 環境変数からベースパスを取得
+    """指定されたファイルパスが絶対パスの場合はそのまま、相対パスの場合は環境変数のベースパスを元に開く"""
 
-    if not base_path:
-        logger.error("Error: EXCEL_BASE_PATH environment variable is not set in .env file.")
-        return # ベースパスが設定されていなければエラーログを出して終了
-
-    if not filename_from_db: # ファイル名が空の場合のガード処理を追加
+    if not filename_from_db:
         logger.warning("No Excel filename provided for this schedule. Skipping file open.")
         return
 
-    # ベースパスとDBからのファイル名を結合して絶対パスを作成
-    # os.path.join は OS に依存しないパス結合を行う
-    absolute_file_path = os.path.join(base_path, filename_from_db)
+    # Check if the path from DB is already absolute
+    if os.path.isabs(filename_from_db):
+        absolute_file_path = filename_from_db
+        logger.info(f"Using absolute path from database: {absolute_file_path}")
+    else:
+        # Path is relative, use EXCEL_BASE_PATH from .env
+        base_path = os.getenv('EXCEL_BASE_PATH')
+        if not base_path:
+            logger.error("Error: EXCEL_BASE_PATH environment variable is not set in .env file for relative path.")
+            return
+        absolute_file_path = os.path.join(base_path, filename_from_db)
+        logger.info(f"Using relative path from database, joined with base path: {absolute_file_path}")
 
     logger.info(f"Attempting to open file: {absolute_file_path}")
 

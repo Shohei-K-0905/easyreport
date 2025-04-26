@@ -150,8 +150,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     document.getElementById('edit-schedule-id').value = schedule.id;
                     document.getElementById('edit-description').value = schedule.description || '';
                     document.getElementById('edit-interval_minutes').value = schedule.interval_minutes || '';
-                    document.getElementById('edit-excel_path').value = schedule.excel_path || '';
-                    document.getElementById('edit-google_form_url').value = schedule.google_form_url || '';
+                    document.getElementById('edit-excel-path').value = schedule.excel_path || ''; // IDを修正
+                    document.getElementById('edit_google_form_url').value = schedule.google_form_url || '';
                     document.getElementById('edit-is_active').checked = schedule.is_active;
                     // Bootstrap 5 のモーダル表示方法
                      const modalElement = document.getElementById('editScheduleModal');
@@ -251,8 +251,8 @@ document.addEventListener('DOMContentLoaded', function() {
         const id = document.getElementById('edit-schedule-id').value;
         const description = document.getElementById('edit-description').value;
         const interval_minutes = parseInt(document.getElementById('edit-interval_minutes').value, 10);
-        const excel_path = document.getElementById('edit-excel_path').value;
-        const google_form_url = document.getElementById('edit-google_form_url').value;
+        const excel_path = document.getElementById('edit-excel-path').value; // IDを修正
+        const google_form_url = document.getElementById('edit_google_form_url').value;
 
         // Basic validation
         if (isNaN(interval_minutes) || interval_minutes <= 0) {

@@ -30,11 +30,11 @@
                 <input type="number" class="form-control" id="interval_minutes" name="interval_minutes" min="1" required>
             </div>
             <div class="mb-3">
-                <label for="excel_path" class="form-label">Excelファイル名または絶対パス</label>
-                <input type="text" class="form-control" id="excel_path" name="excel_path" placeholder="e.g., monthly_report.xlsx">
+                <label for="excel_path" class="form-label">Excelファイル絶対パス:</label>
+                <input type="text" class="form-control" id="excel_path" name="excel_path" placeholder="例: /Users/username/Documents/report.xlsx">
             </div>
             <div class="mb-3">
-                <label for="google_form_url" class="form-label">Google Form URL (optional)</label>
+                <label for="google_form_url" class="form-label">Google Form URL</label>
                 <input type="url" class="form-control" id="google_form_url" placeholder="https://docs.google.com/forms/...">
             </div>
             <button type="submit" class="btn btn-primary">追加</button>
@@ -48,7 +48,7 @@
                     <th>ID</th>
                     <th>スケジュール名</th>
                     <th>アラーム間隔 (分)</th>
-                    <th>Excelファイル名または絶対パス</th>
+                    <th>Excelファイル絶対パス</th>
                     <th>Google Form URL</th>
                     <th>状態</th>
                     <th>操作</th>
@@ -84,12 +84,12 @@
                             <input type="number" class="form-control" id="edit-interval_minutes" min="1" required>
                         </div>
                         <div class="mb-3">
-                            <label for="edit_excel_path" class="form-label">Excel Filename (optional, in Base Path)</label>
-                            <input type="text" class="form-control" id="edit_excel_path" name="excel_path" placeholder="e.g., weekly_data.xlsx">
+                            <label for="edit-excel-path" class="form-label">Excelファイル絶対パス:</label>
+                            <input type="text" class="form-control" id="edit-excel-path" name="excel_path" placeholder="例: /Users/username/Documents/report.xlsx">
                         </div>
                         <div class="mb-3">
-                            <label for="edit_google_form_url" class="form-label">Google Form URL (optional)</label>
-                            <input type="url" class="form-control" id="edit_google_form_url" placeholder="https://docs.google.com/forms/...">
+                            <label for="edit-google_form_url" class="form-label">Google Form URL</label>
+                            <input type="url" class="form-control" id="edit-google_form_url" placeholder="https://docs.google.com/forms/...">
                         </div>
                     </form>
                 </div>
