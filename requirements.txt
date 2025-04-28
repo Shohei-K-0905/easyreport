@@ -1,8 +1,9 @@
-Flask>=3.0
-SQLAlchemy>=2.0
-APScheduler>=3.10
-requests
-python-dotenv
+Flask-SQLAlchemy==3.1.1
+Flask==3.0.0
+SQLAlchemy==2.0.29
+APScheduler==3.10.4
+requests==2.31.0
+python-dotenv==1.0.1
 pyttsx3           # TTS
 vosk              # STT（モデルは手動DL）
 SpeechRecognition  # STT (マイク入力用)
@@ -12,3 +13,6 @@ pandas            # Excel 操作補助
 openpyxl          # ↑のドライバ
 pytest            # テスト用
 playsound==1.2.2
+# psycopg2-binary==2.9.9
+pytz==2024.1
+flask-sse

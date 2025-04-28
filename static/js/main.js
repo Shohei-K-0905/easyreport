@@ -297,4 +297,194 @@ document.addEventListener('DOMContentLoaded', function() {
              .replace(/'/g, "&#039;");
      }
 
+    // --- Server-Sent Events (SSE) Setup ---
+    console.log('Setting up SSE connection...');
+    const eventSource = new EventSource('/stream'); // Connect to the SSE endpoint
+
+    eventSource.onopen = function() {
+        console.log('SSE connection established.');
+    };
+
+    eventSource.onerror = function(err) {
+        console.error('SSE error:', err);
+        // Optionally attempt to reconnect or notify the user
+    };
+
+    // Listen for 'alert_triggered' events from the server
+    eventSource.addEventListener('alert_triggered', function(event) {
+        console.log('Received alert_triggered event:', event.data);
+        try {
+            const data = JSON.parse(event.data);
+            const scheduleId = data.schedule_id;
+
+            if (scheduleId) {
+                // Find the table row corresponding to the schedule ID
+                const row = scheduleListBody.querySelector(`tr[data-schedule-id='${scheduleId}']`);
+                if (row) {
+                    // Find the cell for report status in that row
+                    const reportStatusCell = row.querySelector('.report-status-cell');
+                    if (reportStatusCell) {
+                        // Update the cell content with the 'Report Incomplete' button
+                        reportStatusCell.innerHTML = `
+                            <button class="btn btn-sm btn-danger report-completed-button" data-schedule-id="${scheduleId}">
+                                報告未完了
+                            </button>
+                        `;
+                        console.log(`Updated report status for schedule ${scheduleId} to 'Incomplete'`);
+                    } else {
+                        console.error(`Could not find report status cell for schedule ${scheduleId}`);
+                    }
+                } else {
+                    console.warn(`Could not find table row for schedule ${scheduleId}`);
+                }
+            } else {
+                 console.error('Received alert_triggered event without schedule_id:', data);
+            }
+        } catch (e) {
+            console.error('Error parsing SSE data:', e);
+        }
+    });
+
+    // --- Edit, Delete, Toggle Active, Open Form --- 
+    scheduleListBody.addEventListener('click', function(event) {
+        const target = event.target;
+        // Use closest to handle clicks inside the button (e.g., on text)
+        const reportButton = target.closest('.mark-complete-btn');
+        const editButton = target.closest('.edit-btn');
+        const deleteButton = target.closest('.delete-btn');
+        const toggleButton = target.closest('.toggle-active-btn');
+        const openFormButton = target.closest('.open-form-btn');
+
+        // Edit Button
+        if (editButton) {
+            const scheduleId = editButton.getAttribute('data-id');
+            fetch(`/api/schedules/${scheduleId}`)
+                .then(response => response.json())
+                .then(schedule => {
+                    document.getElementById('edit-schedule-id').value = schedule.id;
+                    document.getElementById('edit-description').value = schedule.name;
+                    document.getElementById('edit-interval_minutes').value = schedule.interval_minutes;
+                    document.getElementById('edit-excel-path').value = schedule.excel_path || '';
+                    document.getElementById('edit-google_form_url').value = schedule.google_form_url || '';
+                    editModal.show(); // Show modal programmatically
+                })
+                .catch(error => console.error('Error fetching schedule details:', error));
+        }
+
+        // Delete Button
+        else if (deleteButton) {
+            const scheduleId = deleteButton.getAttribute('data-id');
+            if (confirm('本当にこのスケジュールを削除しますか？')) {
+                fetch(`/api/schedules/${scheduleId}`, {
+                    method: 'DELETE',
+                })
+                .then(response => {
+                     if (!response.ok) {
+                        return response.json().then(err => { throw new Error(err.error || 'スケジュールの削除に失敗しました。'); });
+                    }
+                    return response.json();
+                })
+                .then(() => fetchSchedules()) // Refresh list
+                .catch(error => {
+                    console.error('Error deleting schedule:', error);
+                    alert(`エラー: ${error.message}`);
+                });
+            }
+        }
+
+        // Toggle Active/Inactive Button
+        else if (toggleButton) {
+            const scheduleId = toggleButton.getAttribute('data-id');
+            fetch(`/api/schedules/${scheduleId}/toggle_active`, {
+                method: 'POST',
+            })
+             .then(response => {
+                 if (!response.ok) {
+                    return response.json().then(err => { throw new Error(err.error || '状態の切り替えに失敗しました。'); });
+                }
+                return response.json();
+            })
+            .then(() => fetchSchedules()) // Refresh list
+            .catch(error => {
+                console.error('Error toggling schedule active state:', error);
+                alert(`エラー: ${error.message}`);
+            });
+        }
+        
+        // Open Google Form Button
+        else if (openFormButton) {
+            const formUrl = openFormButton.getAttribute('data-url');
+            if (formUrl) {
+                fetch(`/api/open_form`, { 
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ url: formUrl }),
+                 })
+                .then(response => {
+                    if (!response.ok) {
+                       return response.json().then(err => { throw new Error(err.error || 'フォームを開けませんでした。'); });
+                   }
+                   return response.json();
+               })
+               .then(data => {
+                    if(data.success) {
+                        console.log('Form open request sent successfully.');
+                        // Optional: Provide feedback to the user
+                    }
+               })
+               .catch(error => {
+                   console.error('Error opening form:', error);
+                   alert(`エラー: ${error.message}`);
+                });
+            }
+        }
+
+        // --- Report Completion Button --- 
+        else if (reportButton) { // Use the variable defined earlier
+            const scheduleId = reportButton.getAttribute('data-id');
+            reportButton.disabled = true; // Prevent double clicks
+            reportButton.textContent = '処理中...';
+
+            fetch(`/api/schedules/${scheduleId}/mark_completed`, {
+                method: 'POST',
+            })
+            .then(response => {
+                if (!response.ok) {
+                    // Try to parse error JSON, otherwise use status text
+                    return response.json().then(err => { 
+                        throw new Error(err.description || err.error || `HTTP error! status: ${response.status}`); 
+                    }).catch(() => {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    });
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.success) {
+                    // Update button appearance to 'Report Completed'
+                    reportButton.classList.remove('btn-danger');
+                    reportButton.classList.add('btn-success');
+                    reportButton.textContent = '報告完了';
+                    // Keep it disabled as the action is complete
+                    console.log(`Report marked complete for schedule ${scheduleId}`);
+                } else {
+                    // This case might not be reached if errors are thrown above
+                    throw new Error(data.description || data.error || 'サーバーエラーが発生しました。');
+                }
+            })
+            .catch(error => {
+                console.error('Error marking report complete:', error);
+                alert(`報告完了エラー: ${error.message}`);
+                // Re-enable button and revert text on error
+                reportButton.disabled = false;
+                reportButton.textContent = '報告未完了';
+                // Ensure it has the danger class if it failed
+                reportButton.classList.remove('btn-success');
+                reportButton.classList.add('btn-danger');
+            });
+        }
+    });
+
 });

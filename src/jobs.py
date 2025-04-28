@@ -13,6 +13,7 @@ import subprocess
 import sys
 import platform
 import dotenv
+import requests
 
 logging.basicConfig(level=logging.INFO)
 logger = getLogger(__name__)
@@ -41,19 +42,44 @@ def open_resources():
         webbrowser.open(f"https://docs.google.com/forms/d/e/{form_id}/viewform")
 
 
-def play_alert_sound():
-    """Plays an alert sound."""
-    # IMPORTANT: Place an 'alert.wav' file in the project's 'src' directory
-    # or update the path accordingly.
-    sound_file = os.path.join(os.path.dirname(__file__), 'alert.wav')
+def play_alert_sound(schedule_id: int):
+    """Plays the alert sound relative to this script's location and notifies the main app."""
+    sound_filename = "alert.wav"
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    sound_file_path = os.path.join(script_dir, sound_filename)
+
+    logger.info(f"Attempting to play alert sound for schedule {schedule_id} from: {sound_file_path}")
     try:
-        logger.info("Attempting to play alert sound...")
-        playsound(sound_file)
-        logger.info("Alert sound played.")
+        if not os.path.exists(sound_file_path):
+            logger.error(f"Alert sound file not found at {sound_file_path}")
+            # Still attempt to notify the app even if sound fails
+        else:
+            if platform.system() == "Darwin":  # macOS
+                logger.info(f"Using 'afplay' on macOS for path: {sound_file_path}")
+                result = subprocess.run(['afplay', sound_file_path], check=False, capture_output=True, text=True)
+                if result.returncode == 0:
+                    logger.info(f"'afplay' completed successfully for schedule {schedule_id}.")
+                else:
+                    logger.error(f"'afplay' failed for schedule {schedule_id} with code {result.returncode}. Error: {result.stderr}")
+            else:  # Fallback for other systems
+                logger.info(f"Using 'playsound' for schedule {schedule_id} with path: {sound_file_path}")
+                playsound(sound_file_path)
+                logger.info(f"'playsound' call completed for schedule {schedule_id}.")
+
     except Exception as e:
-        # Handle cases where playsound fails (e.g., file not found, platform issues)
-        logger.error(f"Could not play sound file '{sound_file}': {e}")
-        # Consider adding a fallback mechanism or just logging the error.
+        logger.error(f"Failed to play alert sound '{sound_file_path}' for schedule {schedule_id}: {e}", exc_info=True)
+        # Continue to notification even if sound playback fails
+
+    # Notify the Flask app that the alert was triggered
+    try:
+        # Assuming Flask app runs on localhost:5001 (adjust if different)
+        # TODO: Make the base URL configurable
+        notify_url = f"http://127.0.0.1:5001/internal/notify_alert/{schedule_id}"
+        response = requests.post(notify_url, timeout=5) # Send POST request
+        response.raise_for_status() # Raise an exception for bad status codes (4xx or 5xx)
+        logger.info(f"Successfully notified Flask app about alert for schedule {schedule_id}.")
+    except requests.exceptions.RequestException as notify_err:
+        logger.error(f"Failed to notify Flask app about alert for schedule {schedule_id}: {notify_err}")
 
 
 def open_google_form(url: str):
@@ -144,17 +170,63 @@ def open_local_file(filename_from_db: str):
 
     try:
         system = platform.system()
+        cmd = []
         if system == "Windows":
-            # os.startfile(absolute_file_path) # 代替案
-            subprocess.run(['start', '', absolute_file_path], check=True, shell=True)
+            # Use start command which doesn't block and handles spaces better via the first empty arg
+            cmd = ['start', '', absolute_file_path]
+            # Using shell=True might be necessary for 'start' on some Windows setups
+            result = subprocess.run(cmd, check=False, shell=True, capture_output=True, text=True, encoding='utf-8', errors='replace') # Use shell=True for start, capture output
         elif system == "Darwin":  # macOS
-            subprocess.run(['open', absolute_file_path], check=True)
+            cmd = ['open', absolute_file_path]
+            result = subprocess.run(cmd, check=False, capture_output=True, text=True, encoding='utf-8', errors='replace') # check=False to capture error
         else:  # Linuxなど
-            subprocess.run(['xdg-open', absolute_file_path], check=True)
-        logger.info(f"Opened file: {absolute_file_path}")
+            cmd = ['xdg-open', absolute_file_path]
+            result = subprocess.run(cmd, check=False, capture_output=True, text=True, encoding='utf-8', errors='replace') # check=False to capture error
+
+        # Check return code and stderr
+        if result.returncode != 0:
+            error_message = f"Error opening file '{absolute_file_path}' with command '{' '.join(cmd)}'. Return code: {result.returncode}."
+            stderr_output = result.stderr.strip()
+            if stderr_output:
+                error_message += f" Stderr: {stderr_output}"
+            logger.error(error_message)
+        else:
+            logger.info(f"Opened file: {absolute_file_path}")
+
     except FileNotFoundError:
-        logger.error(f"Error: The file '{absolute_file_path}' was not found.")
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Error opening file '{absolute_file_path}': {e}")
+        # This typically means 'open', 'start', or 'xdg-open' command itself wasn't found
+        logger.error(f"Error: Command for opening files ('open', 'start', or 'xdg-open') not found in PATH for system '{system}'.")
     except Exception as e:
-        logger.error(f"An unexpected error occurred while opening file '{absolute_file_path}': {e}")
+        # Catch other potential exceptions
+        logger.error(f"An unexpected error occurred while trying to run command to open file '{absolute_file_path}': {e}", exc_info=True)
+
+
+def play_startup_sound():
+    """Plays the startup sound relative to this script's location."""
+    sound_filename = "alert.wav"
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    sound_file_path = os.path.join(script_dir, sound_filename)
+
+    logger.info(f"Attempting to play startup sound from: {sound_file_path}")
+    try:
+        if not os.path.exists(sound_file_path):
+            logger.error(f"Startup sound file not found at {sound_file_path}")
+            return
+
+        if platform.system() == "Darwin":  # macOS
+            logger.info(f"Using 'afplay' on macOS for path: {sound_file_path}")
+            result = subprocess.run(['afplay', sound_file_path], check=False, capture_output=True, text=True)
+            if result.returncode == 0:
+                logger.info("'afplay' completed successfully.")
+            else:
+                logger.error(f"'afplay' failed with code {result.returncode}. Error: {result.stderr}")
+        else:  # Fallback for other systems (Windows, Linux)
+            logger.info(f"Using 'playsound' for path: {sound_file_path}") # Log before call
+            playsound(sound_file_path)
+            logger.info(f"'playsound' call completed for: {sound_file_path}") # Log after call
+
+        # logger.info("Startup sound played successfully.") # Removed as completion is logged above
+
+    except Exception as e:
+        # Catch potential errors
+        logger.error(f"Failed to play startup sound '{sound_file_path}': {e}", exc_info=True)

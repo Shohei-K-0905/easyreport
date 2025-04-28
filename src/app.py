@@ -21,6 +21,9 @@ from .jobs import play_alert_sound, open_local_file, open_google_form
 from config import settings
 from . import jobs # Import the jobs module
 import pytz # Add pytz import
+import datetime # Ensure datetime is imported
+from flask_sse import sse # Import the sse blueprint
+import json # Import json for SSE data
 
 # --- Logging Setup ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s:%(name)s:%(message)s')
@@ -39,6 +42,21 @@ static_dir = os.path.abspath(os.path.join(basedir, '..', 'static'))
 
 # Initialize Flask app, specifying template and static folder locations
 app = Flask(__name__, template_folder=template_dir, static_folder=static_dir)
+
+# --- Configure and Register SSE --- #
+# If using Redis, configure the URL
+# app.config["REDIS_URL"] = "redis://localhost" # Uncomment and adjust if you have Redis
+# If not using Redis (using filesystem or in-memory, not recommended for production but ok for dev):
+app.config["SSE_STORAGE"] = "filesystem" # Or "memory" (less persistent)
+app.config["SSE_LISTENERS_PATH"] = "_sse_listeners" # Directory for filesystem storage
+
+# Ensure the listener directory exists if using filesystem storage
+if app.config.get("SSE_STORAGE") == "filesystem":
+    listeners_path = os.path.join(app.root_path, '..', app.config["SSE_LISTENERS_PATH"])
+    os.makedirs(listeners_path, exist_ok=True)
+    logger.info(f"Ensured SSE listener directory exists: {listeners_path}")
+
+app.register_blueprint(sse, url_prefix='/stream') # Register the SSE blueprint
 
 # --- APScheduler Setup ---
 jobstores = {
@@ -165,7 +183,7 @@ def add_or_update_jobs_for_schedule(db_schedule: Schedule):
                  id=sound_job_id,
                  name=f"Alert Sound for {db_schedule.description or db_schedule.id}",
                  replace_existing=True,
-                 args=[]
+                 args=[db_schedule.id] # Pass the schedule ID
                  # **trigger_args <- REMOVED
              )
              logger.info(f"Successfully scheduled/updated Alert Sound job '{sound_job_id}'")
@@ -241,6 +259,18 @@ def schedule_initial_jobs():
         db.close()
         logger.info(f"Initial job scheduling complete. Success: {schedules_added}, Failed: {schedules_failed if schedules_failed >= 0 else 'N/A (Error)'}")
 
+
+# --- Internal API Endpoints (Not for direct user access) ---
+@app.route('/internal/notify_alert/<int:schedule_id>', methods=['POST'])
+def notify_alert_triggered(schedule_id):
+    """Internal endpoint called by jobs.py when an alert sound plays.
+       Publishes an SSE event to notify the frontend.
+    """
+    logger.info(f"Received internal notification: Alert triggered for schedule_id {schedule_id}")
+    # Publish an event named 'alert_triggered' with the schedule_id
+    sse.publish({"schedule_id": schedule_id}, type='alert_triggered')
+    logger.info(f"Published SSE event 'alert_triggered' for schedule_id {schedule_id}")
+    return jsonify(success=True), 200
 
 # --- Flask Routes --- 
 
@@ -490,30 +520,6 @@ def run_schedule_now(schedule_id):
         # 何か一つでも失敗したらエラーレスポンス
         return jsonify({"status": "error", "message": "One or more actions failed.", "details": error_messages}), 500
 
-@app.route('/api/schedules/<int:schedule_id>/report_completed', methods=['POST'])
-def mark_report_completed(schedule_id):
-    db: Session = SessionLocal()
-    try:
-        schedule = db.query(Schedule).filter(Schedule.id == schedule_id).first()
-        if not schedule:
-            logger.warning(f"Attempted to mark report completed for non-existent schedule ID: {schedule_id}")
-            db.close()
-            abort(404, description="Schedule not found")
-
-        # 報告履歴を作成
-        new_history = ReportHistory(schedule_id=schedule_id)
-        db.add(new_history)
-        db.commit()
-        logger.info(f"Report marked as completed for schedule ID: {schedule_id}")
-        return jsonify({"message": f"スケジュール {schedule_id} の報告完了を記録しました。"}), 200
-
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Error marking report completed for schedule ID {schedule_id}: {e}", exc_info=True)
-        return jsonify({"message": "報告完了の記録中にエラーが発生しました。"}), 500
-    finally:
-        db.close()
-
 @app.route('/api/report_history')
 def get_report_history():
     session = SessionLocal()
@@ -548,14 +554,48 @@ def get_report_history():
     finally:
         session.close()
 
+@app.route('/api/schedules/<int:schedule_id>/mark_completed', methods=['POST'])
+def mark_report_completed(schedule_id):
+    db = SessionLocal()
+    try:
+        # Check if the schedule exists
+        schedule = db.query(Schedule).filter(Schedule.id == schedule_id).first()
+        if not schedule:
+            logger.warning(f"Attempted to mark completion for non-existent schedule ID: {schedule_id}")
+            abort(404, description="Schedule not found")
 
-# --- Main Execution --- 
+        # Create a new history record
+        new_history = ReportHistory(
+            schedule_id=schedule_id,
+            # completed_at is handled by server_default in the model
+        )
+        db.add(new_history)
+        db.commit()
+        logger.info(f"Marked report as completed for schedule ID: {schedule_id}")
+        return jsonify({"message": "Report marked as completed successfully", "history_id": new_history.id}), 200
 
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error marking report completed for schedule ID {schedule_id}: {e}", exc_info=True)
+        return jsonify({"error": "Failed to mark report as completed"}), 500
+    finally:
+        db.close()
+
+# --- Main Execution (Only used if running the script directly with 'python src/app.py') ---
 if __name__ == '__main__':
-    logger.info(f"Starting Flask app on port {settings.PORT}...")
+    # This block is typically NOT executed when using 'flask run'
+    logger.info(f"Starting Flask app directly via __main__ on port {settings.PORT}...")
+    # The following lines are removed as flask run handles this.
+    # logger.info("Attempting to call jobs.play_startup_sound()...") # Log before call attempt
+    # try:
+    #     jobs.play_startup_sound()
+    #     logger.info("Call to jobs.play_startup_sound() completed (within try block).") # Log after successful call
+    # except Exception as e:
+    #     logger.error(f"Error occurred *during* the call to jobs.play_startup_sound(): {e}", exc_info=True)
+
     # Flask アプリケーションを実行
     # host='0.0.0.0' は全てのネットワークインターフェースで待ち受ける
     # debug=True にすると、コード変更時に自動リロードされ、デバッグ情報が表示される
     # use_reloader=False は、APSchedulerとの二重起動を防ぐために重要
-    app.run(host='127.0.0.1', port=settings.PORT, debug=True, use_reloader=False)
-    logger.info("Flask app started.")
+    app.run(host='127.0.0.1', port=settings.PORT, debug=False, use_reloader=False) # Set debug=False typically for direct run
+    logger.info("Flask app started directly via __main__.")

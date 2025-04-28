@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Bool
 from sqlalchemy.sql import func
 from db import Base
 import datetime
+from sqlalchemy.orm import relationship
 
 class ServiceConfig(Base):
     __tablename__ = "service_configs"
@@ -96,7 +97,12 @@ class FormSubmission(Base):
     status = Column(String, default="SUCCESS")
 
 class ReportHistory(Base):
-    __tablename__ = "report_history"
+    __tablename__ = 'report_history'
+
     id = Column(Integer, primary_key=True, index=True)
-    schedule_id = Column(Integer, ForeignKey("schedules.id", ondelete="CASCADE"), nullable=False)
-    reported_at = Column(DateTime, default=datetime.datetime.now(datetime.timezone.utc))
+    schedule_id = Column(Integer, ForeignKey('schedules.id'), nullable=False, index=True)
+    completed_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    schedule = relationship("Schedule")
+
+    def __repr__(self):
+        return f"<ReportHistory(schedule_id={self.schedule_id}, completed_at='{self.completed_at.isoformat()}')>"
