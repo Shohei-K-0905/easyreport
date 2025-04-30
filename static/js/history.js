@@ -20,10 +20,10 @@ async function fetchHistory() {
 
         // 年月でグループ化
         const groupedHistory = historyData.reduce((acc, record) => {
-            const reportedDate = new Date(record.reported_at);
-            // reported_at は UTC で保存されていると仮定し、JSTに変換して年月を取得
-            const year = reportedDate.getFullYear();
-            const month = reportedDate.getMonth() + 1; // getMonthは0始まり
+            const completedDate = new Date(record.completed_at);
+            // completed_at は UTC で保存されていると仮定し、JSTに変換して年月を取得
+            const year = completedDate.getFullYear();
+            const month = completedDate.getMonth() + 1; // getMonthは0始まり
             const yearMonth = `${year}年${String(month).padStart(2, '0')}月`;
 
             if (!acc[yearMonth]) {
@@ -62,11 +62,11 @@ async function fetchHistory() {
                             </thead>
                             <tbody>
                                 ${records.map(record => {
-                                    // reported_at を JST で表示
-                                    const reportedDateJST = new Date(record.reported_at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
+                                    // completed_at を JST で表示
+                                    const completedDateJST = new Date(record.completed_at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
                                     return `
                                         <tr>
-                                            <td>${reportedDateJST}</td>
+                                            <td>${completedDateJST}</td>
                                             <td>${record.schedule_description}</td>
                                             <td>${record.schedule_id}</td>
                                         </tr>

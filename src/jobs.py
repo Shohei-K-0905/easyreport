@@ -18,6 +18,29 @@ import requests
 logging.basicConfig(level=logging.INFO)
 logger = getLogger(__name__)
 
+# --- Configuration --- 
+# Make the base URL for internal API calls configurable or default
+FLASK_APP_BASE_URL = os.getenv("INTERNAL_API_BASE_URL", "http://127.0.0.1:5001")
+
+def notify_report_completed(schedule_id: int):
+    """Internal helper to notify the main Flask app that a report action completed."""
+    notify_url = f"{FLASK_APP_BASE_URL}/internal/mark_report_action_completed/{schedule_id}"
+    try:
+        logger.info(f"Notifying Flask app of completion for schedule {schedule_id} at {notify_url}")
+        response = requests.post(notify_url, timeout=10) # Increased timeout slightly
+        response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
+        logger.info(f"Successfully notified Flask app of completion for schedule {schedule_id}. Status: {response.status_code}")
+        return True
+    except requests.exceptions.Timeout:
+        logger.error(f"Timeout occurred while notifying Flask app for schedule {schedule_id} at {notify_url}")
+        return False
+    except requests.exceptions.RequestException as notify_err:
+        logger.error(f"Failed to notify Flask app about completion for schedule {schedule_id}: {notify_err}")
+        return False
+    except Exception as e:
+        logger.error(f"Unexpected error during completion notification for schedule {schedule_id}: {e}", exc_info=True)
+        return False
+
 def notify_before(schedule_id: int, message: str):
     """
     Send a reminder notification via Teams and record it.
@@ -82,9 +105,9 @@ def play_alert_sound(schedule_id: int):
         logger.error(f"Failed to notify Flask app about alert for schedule {schedule_id}: {notify_err}")
 
 
-def open_google_form(url: str):
+def open_google_form(schedule_id: int, url: str):
     """Opens the provided URL in the default web browser using OS-specific commands."""
-    logger.info(f"--- Entering open_google_form ---")
+    logger.info(f"--- Entering open_google_form for schedule_id: {schedule_id} --- ")
     logger.info(f"Received URL argument: {url}")
 
     if not url:
@@ -108,9 +131,13 @@ def open_google_form(url: str):
             opened = webbrowser.open(url)
             if opened:
                 logger.info(f"webbrowser.open reported success for URL: {url}")
+                # Notify completion after successful opening
+                notify_report_completed(schedule_id)
             else:
                 # This fallback might not work reliably from background threads
                 logger.warning(f"webbrowser.open reported failure for URL: {url}. This might be expected in background jobs on {system}.")
+                # Optionally notify completion even if webbrowser.open fails, depending on desired behavior
+                # notify_report_completed(schedule_id) 
 
     except FileNotFoundError:
         command = "open" if system == "Darwin" else "start" if system == "Windows" else "webbrowser"
@@ -142,11 +169,12 @@ def voice_dialog_job(schedule_id: int, prompts: list[str]) -> dict[str, str]:
     return {}
 
 
-def open_local_file(filename_from_db: str):
+def open_local_file(schedule_id: int, filename_from_db: str):
     """指定されたファイルパスが絶対パスの場合はそのまま、相対パスの場合は環境変数のベースパスを元に開く"""
+    logger.info(f"--- Entering open_local_file for schedule_id: {schedule_id} ---")
 
     if not filename_from_db:
-        logger.warning("No Excel filename provided for this schedule. Skipping file open.")
+        logger.warning(f"No Excel filename provided for schedule {schedule_id}. Skipping file open.")
         return
 
     # Check if the path from DB is already absolute
@@ -191,7 +219,9 @@ def open_local_file(filename_from_db: str):
                 error_message += f" Stderr: {stderr_output}"
             logger.error(error_message)
         else:
-            logger.info(f"Opened file: {absolute_file_path}")
+            logger.info(f"Opened file: {absolute_file_path} for schedule {schedule_id}")
+            # Notify completion after successful opening
+            notify_report_completed(schedule_id)
 
     except FileNotFoundError:
         # This typically means 'open', 'start', or 'xdg-open' command itself wasn't found

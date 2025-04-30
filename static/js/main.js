@@ -199,24 +199,36 @@ document.addEventListener('DOMContentLoaded', function() {
             console.log("Run now button action for", scheduleId); // ★デバッグログ追加
             if (confirm(`スケジュール ID: ${scheduleId} の報告を即時実行しますか？`)) {
                  console.log("Confirmed run now. Sending fetch request..."); // ★デバッグログ追加
-                // バックエンドに即時実行リクエストを送る
-                fetch(`/api/schedules/${scheduleId}/run_now`, { method: 'POST' })
-                    .then(response => {
-                         if (!response.ok) {
-                            // エラーレスポンスからメッセージを取得試行
-                            return response.json().then(err => { throw new Error(err.message || `HTTP error! status: ${response.status}`) });
-                        }
-                        return response.json(); // 成功レスポンスをJSONとして解析
-                    })
-                    .then(data => {
-                         console.log("Run now successful:", data); // ★デバッグログ追加
-                        alert(data.message || '即時実行をリクエストしました。'); // 成功メッセージ表示
-                        // ここではリストの再読み込みは不要かもしれない
-                    })
-                    .catch(error => {
-                        console.error('Error running schedule now:', error); // ★デバッグログ追加
-                        alert(`即時実行リクエストに失敗しました: ${error.message}`);
-                    });
+                 // --- Add fetch call --- 
+                 fetch(`${API_BASE}/${scheduleId}/run_now`, {
+                    method: 'POST',
+                    headers: {
+                        // No Content-Type needed for empty body, but CSRF might be needed later
+                    }
+                    // No body needed for this request
+                 })
+                 .then(response => {
+                     if (!response.ok) {
+                         // Try to parse error message from backend if possible
+                         return response.json().then(err => { 
+                             throw new Error(err.message || `HTTP error! Status: ${response.status}`); 
+                         }).catch(() => {
+                             // Fallback if response is not JSON or parsing fails
+                              throw new Error(`HTTP error! Status: ${response.status}`);
+                         });
+                     }
+                     return response.json(); // Expecting {status: 'success', ...} or similar
+                 })
+                 .then(data => {
+                     console.log("Run now successful:", data);
+                     alert(`スケジュール ${scheduleId} の即時報告を開始しました。`); 
+                     // Optionally, reload schedules or update UI if needed, but history is main goal
+                     // loadSchedules(); 
+                 })
+                 .catch(error => {
+                     console.error('Error running schedule now:', error);
+                     alert(`即時報告の開始に失敗しました: ${error.message}`);
+                 });
             }
         }
         // 報告完了ボタン

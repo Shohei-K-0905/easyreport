@@ -22,12 +22,15 @@ from config import settings
 from . import jobs # Import the jobs module
 import pytz # Add pytz import
 import datetime # Ensure datetime is imported
-from flask_sse import sse # Import the sse blueprint
+# from flask_sse import sse # Import the sse blueprint
 import json # Import json for SSE data
 
-# --- Logging Setup ---
-logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s:%(name)s:%(message)s')
-logger = logging.getLogger(__name__)
+# --- Logging Setup (Revised) ---
+# Configure root logger - good for general messages outside app context
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)s:%(name)s:%(message)s')
+
+# Get the root logger instance if needed elsewhere
+root_logger = logging.getLogger()
 
 # --- Database Setup ---
 Base.metadata.create_all(bind=engine)
@@ -43,20 +46,44 @@ static_dir = os.path.abspath(os.path.join(basedir, '..', 'static'))
 # Initialize Flask app, specifying template and static folder locations
 app = Flask(__name__, template_folder=template_dir, static_folder=static_dir)
 
+# --- Configure Flask App Logging ---
+# Ensure Flask logger uses the desired level and handlers
+# Remove default Flask handler to avoid duplicate logs if basicConfig added one
+# Note: In newer Flask versions, direct handler manipulation might differ slightly
+from flask.logging import default_handler
+app.logger.removeHandler(default_handler)
+
+# Set Flask app logger level
+app.logger.setLevel(logging.DEBUG)
+
+# Add the handler configured by basicConfig (or configure a new one)
+# Assuming basicConfig added a StreamHandler to the root logger
+if root_logger.hasHandlers():
+    for handler in root_logger.handlers:
+        app.logger.addHandler(handler)
+else:
+    # Fallback if basicConfig didn't add a handler (e.g., running via flask run)
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s:%(name)s:%(message)s'))
+    app.logger.addHandler(stream_handler)
+
+# Use app.logger for application-specific logs
+logger = app.logger 
+
 # --- Configure and Register SSE --- #
 # If using Redis, configure the URL
 # app.config["REDIS_URL"] = "redis://localhost" # Uncomment and adjust if you have Redis
 # If not using Redis (using filesystem or in-memory, not recommended for production but ok for dev):
-app.config["SSE_STORAGE"] = "filesystem" # Or "memory" (less persistent)
-app.config["SSE_LISTENERS_PATH"] = "_sse_listeners" # Directory for filesystem storage
+# app.config["SSE_STORAGE"] = "filesystem" # Or "memory" (less persistent)
+# app.config["SSE_LISTENERS_PATH"] = "_sse_listeners" # Directory for filesystem storage
 
 # Ensure the listener directory exists if using filesystem storage
-if app.config.get("SSE_STORAGE") == "filesystem":
-    listeners_path = os.path.join(app.root_path, '..', app.config["SSE_LISTENERS_PATH"])
-    os.makedirs(listeners_path, exist_ok=True)
-    logger.info(f"Ensured SSE listener directory exists: {listeners_path}")
+# if app.config.get("SSE_STORAGE") == "filesystem":
+#     listeners_path = os.path.join(app.root_path, '..', app.config["SSE_LISTENERS_PATH"])
+#     os.makedirs(listeners_path, exist_ok=True)
+#     logger.info(f"Ensured SSE listener directory exists: {listeners_path}")
 
-app.register_blueprint(sse, url_prefix='/stream') # Register the SSE blueprint
+# app.register_blueprint(sse, url_prefix='/stream') # Register the SSE blueprint
 
 # --- APScheduler Setup ---
 jobstores = {
@@ -121,7 +148,8 @@ def add_or_update_jobs_for_schedule(db_schedule: Schedule):
                 id=form_job_id,
                 name=f"Open Google Form for {db_schedule.description or db_schedule.id}",
                 replace_existing=True,
-                args=[form_url_to_schedule] # URLをリストとして渡す
+                # Pass schedule_id FIRST, then the URL
+                args=[db_schedule.id, form_url_to_schedule]
                 # **trigger_args <- REMOVED
             )
             logger.info(f"Successfully scheduled/updated Google Form job '{form_job_id}'")
@@ -152,7 +180,8 @@ def add_or_update_jobs_for_schedule(db_schedule: Schedule):
                 id=excel_job_id,
                 name=f"Open Excel for {db_schedule.description or db_schedule.id}",
                 replace_existing=True,
-                args=[excel_path_to_schedule] # パスをリストとして渡す
+                # Pass schedule_id FIRST, then the path
+                args=[db_schedule.id, excel_path_to_schedule] 
                 # **trigger_args <- REMOVED
              )
              logger.info(f"Successfully scheduled/updated Excel job '{excel_job_id}'")
@@ -268,9 +297,24 @@ def notify_alert_triggered(schedule_id):
     """
     logger.info(f"Received internal notification: Alert triggered for schedule_id {schedule_id}")
     # Publish an event named 'alert_triggered' with the schedule_id
-    sse.publish({"schedule_id": schedule_id}, type='alert_triggered')
-    logger.info(f"Published SSE event 'alert_triggered' for schedule_id {schedule_id}")
-    return jsonify(success=True), 200
+    # sse.publish({"schedule_id": schedule_id}, type='alert_triggered')
+    # logger.info(f"Published SSE event 'alert_triggered' for schedule_id {schedule_id}")
+    logger.warning(f"SSE functionality is temporarily disabled. Skipping SSE publish for schedule {schedule_id}.")
+    return jsonify({"status": "success", "message": "SSE disabled"}), 200
+
+@app.route('/internal/mark_report_action_completed/<int:schedule_id>', methods=['POST'])
+def internal_mark_completed(schedule_id):
+    """Internal endpoint called by scheduled jobs after actions complete."""
+    logger.info(f"Internal request received to mark report action completed for schedule_id: {schedule_id}")
+    # Call the existing function, but handle its boolean return value
+    success = mark_report_completed(schedule_id) 
+    if success:
+        logger.info(f"Internal mark completed successful for schedule_id: {schedule_id}")
+        return jsonify({"status": "success"}), 200
+    else:
+        logger.error(f"Internal mark completed failed for schedule_id: {schedule_id}")
+        # Return 500 to indicate failure to the calling job
+        return jsonify({"status": "error", "message": "Failed to mark completion internally"}), 500
 
 # --- Flask Routes --- 
 
@@ -467,118 +511,132 @@ def delete_schedule(schedule_id):
 
 @app.route('/api/schedules/<int:schedule_id>/run_now', methods=['POST'])
 def run_schedule_now(schedule_id):
-    """指定されたスケジュールのジョブ（ファイルを開く、フォームを開く）を即時実行する"""
-    db = SessionLocal()
-    schedule = db.query(Schedule).filter(Schedule.id == schedule_id).first()
-    db.close()
+    logger.info(f"===>>> run_schedule_now function entered for schedule_id: {schedule_id} <<<===")
+    logger.info(f"Received request to run schedule {schedule_id} immediately.")
+    session = SessionLocal()
+    schedule = session.query(Schedule).filter(Schedule.id == schedule_id).first()
+    session.close() # Close session after fetching schedule
 
     if not schedule:
-        logger.warning(f"Run now request for non-existent schedule ID: {schedule_id}")
-        return jsonify({"error": f"Schedule with ID {schedule_id} not found"}), 404
+        logger.warning(f"Immediate run failed: Schedule ID {schedule_id} not found.")
+        return jsonify({"status": "error", "message": "Schedule not found"}), 404
 
-    logger.info(f"Received run now request for schedule ID: {schedule_id} ('{schedule.description}')")
-    success_excel = False
-    success_form = False
-    error_messages = []
+    if not schedule.is_active:
+        logger.warning(f"Attempted to run inactive schedule {schedule_id} immediately.")
+        return jsonify({"status": "error", "message": "Schedule is inactive"}), 400
 
-    # Excelファイルを開く
-    if schedule.excel_path:
-        try:
-            # jobs.py の関数を直接呼び出す
-            # 注意: Excelパスが相対パスの場合、app.py実行時のカレントディレクトリからの相対パスになる
-            # 絶対パスか、設定で基準パスを指定する方が安全
-            base_path = os.getenv('EXCEL_BASE_PATH', '.') # .env などで基準パスを設定可能にする例
-            full_excel_path = os.path.join(base_path, schedule.excel_path)
-            logger.info(f"Attempting immediate open for Excel: {full_excel_path}")
-            jobs.open_local_file(full_excel_path) # Use imported module
-            success_excel = True
-            logger.info(f"Successfully initiated immediate open for Excel: {full_excel_path}")
-        except Exception as e:
-            logger.error(f"Failed to immediately open Excel file for schedule {schedule_id}: {e}", exc_info=True)
-            error_messages.append(f"Failed to open Excel: {e}")
-    else:
-        logger.info(f"No Excel path configured for immediate run of schedule {schedule_id}.")
-        # Excelパスがないのはエラーではないので success_excel は True 扱いでも良いかも
+    logger.info(f"Executing actions immediately for schedule {schedule_id}")
+    actions_executed = False
 
-    # Googleフォームを開く
-    if schedule.google_form_url:
-        try:
-            logger.info(f"Attempting immediate open for Google Form: {schedule.google_form_url}")
-            jobs.open_google_form(schedule.google_form_url) # Use imported module
-            success_form = True
-            logger.info(f"Successfully initiated immediate open for Google Form: {schedule.google_form_url}")
-        except Exception as e:
-            logger.error(f"Failed to immediately open Google Form for schedule {schedule_id}: {e}", exc_info=True)
-            error_messages.append(f"Failed to open Google Form: {e}")
-    else:
-        logger.info(f"No Google Form URL configured for immediate run of schedule {schedule_id}.")
-        # Google Form URLがないのはエラーではない
+    # --- Execute Actions --- 
+    try:
+        # 1. Open Excel File (if path exists)
+        if schedule.excel_path: 
+            logger.info(f"Running open_local_file job immediately for schedule {schedule_id}")
+            jobs.open_local_file(schedule_id, schedule.excel_path)
+            actions_executed = True
 
-    if not error_messages:
-        return jsonify({"status": "success", "message": f"Immediate report for schedule {schedule_id} initiated."}), 200
-    else:
-        # 何か一つでも失敗したらエラーレスポンス
-        return jsonify({"status": "error", "message": "One or more actions failed.", "details": error_messages}), 500
+        # 2. Open Google Form (if URL exists)
+        if schedule.google_form_url:
+            logger.info(f"Running open_google_form job immediately for schedule {schedule_id}")
+            jobs.open_google_form(schedule_id, schedule.google_form_url)
+            actions_executed = True
+
+        # --- Mark completion if actions were attempted and successful --- 
+        if actions_executed:
+            logger.info(f"Immediate run actions completed for schedule {schedule_id}. Attempting to mark history.")
+            # Call mark_report_completed internally (does not use request context)
+            mark_success = mark_report_completed(schedule_id)
+            if not mark_success:
+                 logger.error(f"Failed to mark history for immediate run of schedule {schedule_id} even though actions succeeded.")
+                 # Decide if this should be a 500 error or just a warning
+                 return jsonify({"status": "error", "message": "Failed to record completion in history."}), 500
+    except Exception as e:
+        logger.error(f"Error executing immediate run for schedule {schedule_id}: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": "Error executing immediate run"}), 500
+
+    return jsonify({"status": "success", "message": f"Immediate report for schedule {schedule_id} initiated and completed."}), 200
 
 @app.route('/api/report_history')
 def get_report_history():
     session = SessionLocal()
+    logger.info("Attempting to fetch report history...")
     try:
-        # 履歴をreported_atの降順で取得し、スケジュール情報も結合
         history_records = (
             session.query(
                 ReportHistory.id,
                 ReportHistory.schedule_id,
-                ReportHistory.reported_at,
-                Schedule.description.label('schedule_description') # Scheduleのdescriptionを取得
+                ReportHistory.completed_at,
+                Schedule.description.label('schedule_description')
             )
-            .join(Schedule, ReportHistory.schedule_id == Schedule.id) # Scheduleテーブルと結合
-            .order_by(ReportHistory.reported_at.desc())
+            .join(Schedule, ReportHistory.schedule_id == Schedule.id)
+            .order_by(ReportHistory.completed_at.desc())
             .all()
         )
+        logger.info(f"Successfully fetched {len(history_records)} records from database.")
 
-        # クエリ結果を辞書のリストに変換
-        history_list = [
-            {
-                'id': record.id,
-                'schedule_id': record.schedule_id,
-                'reported_at': record.reported_at.isoformat() + 'Z', # ISO 8601 format with Z for UTC
-                'schedule_description': record.schedule_description
-            }
-            for record in history_records
-        ]
+        history_list = []
+        logger.info("Attempting to serialize history records loop...")
+        for record in history_records:
+            try:
+                logger.debug(f"Processing record: id={record.id}, schedule_id={record.schedule_id}, completed_at={record.completed_at}, description={record.schedule_description}") 
+                completed_at_iso = record.completed_at.isoformat() + 'Z' if record.completed_at else None
+                history_list.append({
+                    'id': record.id,
+                    'schedule_id': record.schedule_id,
+                    'completed_at': completed_at_iso,
+                    'schedule_description': record.schedule_description
+                })
+                logger.debug(f"Successfully processed record id={record.id}")
+            except Exception as loop_e:
+                logger.error(f"Error processing record id={record.id}: {loop_e}", exc_info=True)
+                raise # Re-raise the exception to trigger the outer except block
+        
+        logger.info("Successfully serialized all history records.")
         return jsonify(history_list)
     except Exception as e:
-        logging.error(f"Error fetching report history: {e}")
-        return jsonify({'error': '履歴の取得中にエラーが発生しました'}), 500
+        logger.error(f"Error fetching report history (outer try): {e}", exc_info=True)
+        return jsonify({"error": "Failed to fetch report history"}), 500
     finally:
+        logger.info("Closing session for report history fetch.")
         session.close()
 
 @app.route('/api/schedules/<int:schedule_id>/mark_completed', methods=['POST'])
 def mark_report_completed(schedule_id):
+    logger.info(f"Attempting to mark report completed for schedule_id: {schedule_id}") # Log entry
     db = SessionLocal()
     try:
-        # Check if the schedule exists
+        # Check if the schedule actually exists
         schedule = db.query(Schedule).filter(Schedule.id == schedule_id).first()
         if not schedule:
-            logger.warning(f"Attempted to mark completion for non-existent schedule ID: {schedule_id}")
-            abort(404, description="Schedule not found")
+            logger.warning(f"Mark completion failed: Schedule ID {schedule_id} not found.")
+            # Avoid abort(404) if called internally, maybe return False or raise specific exception?
+            # For now, just log and return error response if called via API
+            if request: # Check if called via HTTP request
+                 abort(404, description="Schedule not found")
+            else:
+                return False # Indicate failure if called internally
 
-        # Create a new history record
-        new_history = ReportHistory(
-            schedule_id=schedule_id,
-            # completed_at is handled by server_default in the model
-        )
+        logger.debug(f"Found schedule: {schedule.description}. Creating history entry.")
+        new_history = ReportHistory(schedule_id=schedule_id)
         db.add(new_history)
         db.commit()
-        logger.info(f"Marked report as completed for schedule ID: {schedule_id}")
-        return jsonify({"message": "Report marked as completed successfully", "history_id": new_history.id}), 200
-
+        logger.info(f"Successfully marked report completed and committed for schedule_id: {schedule_id}")
+        # If called via API, return success
+        if request:
+            return jsonify({"status": "success", "message": f"Report for schedule {schedule_id} marked as completed."}), 200
+        else:
+             return True # Indicate success if called internally
     except Exception as e:
-        db.rollback()
-        logger.error(f"Error marking report completed for schedule ID {schedule_id}: {e}", exc_info=True)
-        return jsonify({"error": "Failed to mark report as completed"}), 500
+        logger.error(f"Error marking report completed for schedule_id {schedule_id}: {e}", exc_info=True)
+        db.rollback() # Rollback on error
+        # If called via API, return error
+        if request:
+             abort(500, description="Failed to mark report as completed")
+        else:
+            return False # Indicate failure if called internally
     finally:
+        logger.debug(f"Closing session after attempting to mark completion for schedule_id: {schedule_id}")
         db.close()
 
 # --- Main Execution (Only used if running the script directly with 'python src/app.py') ---
