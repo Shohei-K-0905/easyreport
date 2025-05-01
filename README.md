@@ -20,7 +20,19 @@ lua
 編集する
 git log --oneline
 1f82244  Initial project skeleton (easyreport)
-2. セットアップ済みの内容
+
+## 環境設定
+
+本アプリケーションは、APIキーなどの機密情報を環境変数を通じて設定します。
+
+1.  プロジェクトルートにある `.env.example` ファイルをコピーして `.env` という名前のファイルを作成します。
+    ```bash
+    cp .env.example .env
+    ```
+2.  作成した `.env` ファイルを開き、各変数に必要な値を設定してください。各変数の意味については、`.env.example` 内のコメントを参照してください。
+3.  `.env` ファイルは `.gitignore` に含まれているため、Gitリポジトリにはコミットされません。
+
+## 2. セットアップ済みの内容
 フォルダ／ファイル生成
 mkdir -p src tests models && touch … でツリーを作成。
 
@@ -33,7 +45,7 @@ requirements.txt に主要パッケージを列挙（Flask, SQLAlchemy, APSchedu
 Git 初期化
 git init → .gitignore 設定 → 最初のコミット済み。
 
-3. winds urf での引き継ぎ手順
+## 3. セットアップ手順
 bash
 コピーする
 編集する
@@ -48,41 +60,29 @@ source .venv/bin/activate          # Windows は .venv\\Scripts\\Activate.ps1
 # 2) 依存インストール
 pip install -r requirements.txt
 
-# 3) DB 初期化（初回のみ）
-sqlite3 app.db < schema.sql        # または scripts/init_db.py を後で用意
+# 3) .env ファイルの設定
+# 上記の「環境設定」セクションに従って、`.env` ファイルを作成・編集してください。
 
-# 4) .env を作成してキー類をセット
-cp .env.example .env               # 用意する場合
-# <-- TEAMS_WEBHOOK_URL=... などを編集 -->
+# 4) データベースの初期化
+# 初回起動時に、`src/app.py` が `DATABASE_URL` (.env で設定) に基づいて自動的にデータベースファイルとテーブルを作成します。
+# 手動での初期化は不要です。
 
-# 5) 動作確認
-python -c "import sqlite3, os, sys; print('OK: env + db ready')"
-4. 次の開発フェーズ（Phase 1 以降）
+## 起動方法
 
-フェーズ	担当ファイル	やること
-Phase 1 – DB/ORM	models.py / db.py	SQLAlchemy で 8 テーブルのモデルを定義し、接続ヘルパを実装
-Phase 2 – 設定管理	config.py	.env → 設定クラスへ読み込み、SERVICE_CONFIGS を初期投入
-Phase 3 – 連携モジュール	src/ms_teams.py src/graph_excel.py src/google_forms.py	Teams Webhook, Graph API, Google Forms POST ラッパを作成
-Phase 4 – 音声 I/O	src/voice/	tts.py (pyttsx3) / stt.py (vosk) / dialog.py
-Phase 5 – ジョブ実装	src/jobs.py	4 種類の報告ジョブ関数を実装
-Phase 6 – Flask + APScheduler	src/app.py	ミニ UI とバックグラウンドスケジューラ
-Phase 7 – テスト & ドキュメント	tests/, README.md	pytest 追加・README 整備
-メモ
+1.  仮想環境を有効にします。
+    ```bash
+    source .venv/bin/activate  # macOS/Linux
+    # または
+    .venv\Scripts\Activate.ps1 # Windows (PowerShell)
+    ```
+2.  Flask 開発サーバーを起動します。
+    ```bash
+    python3 -m flask --app src/app run --port=5001
+    ```
+    *   `.env` ファイルで `PORT` を変更している場合は、そのポート番号を指定してください。
+3.  Web ブラウザで `http://127.0.0.1:5001/` にアクセスします。
 
-ORM は SQLAlchemy 2.0 Declarative で書くとシンプル。
-
-Graph API の認可は msal.PublicClientApplication.acquire_token_interactive() でデバイスフローを採用。
-
-Vosk JP 小型モデル (vosk-model-small-ja-0.22) を models/ に展開後、stt.py でパス指定。
-
-5. 補足
-.gitignore で .env, .venv/, *.db, models/* は除外済み。
-
-バックアップ は cp app.db backups/$(date +%F).db 程度で OK。
-
-将来 PostgreSQL へ切替え → SQLAlchemy URL を postgresql+psycopg:// に変更し Alembic でマイグレート。
-
-## 6. 設定
+## 4. 次の開発フェーズ（Phase 1 以降）
 
 ### ローカル Excel ファイルを開く機能の設定
 
