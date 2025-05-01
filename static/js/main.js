@@ -46,7 +46,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 <td>${schedule.google_form_url ? `<a href="${schedule.google_form_url}" target="_blank">Link</a>` : ''}</td>
                 <td>${isActiveText}</td>
                 <td>
-                    <button class="btn btn-success btn-sm run-now-button" data-schedule-id="${schedule.id}">即時報告</button>
+                    <button class="btn btn-success btn-sm run-now-button" data-schedule-id="${schedule.id}" data-is-active="${schedule.is_active}">即時報告</button>
                     <button class="btn btn-warning btn-sm edit-button" data-schedule-id="${schedule.id}" data-bs-toggle="modal" data-bs-target="#editScheduleModal">編集</button>
                     <button class="btn btn-danger btn-sm delete-button" data-schedule-id="${schedule.id}">削除</button>
                     <button class="btn ${toggleClass} btn-sm toggle-active-button" data-schedule-id="${schedule.id}" data-is-active="${schedule.is_active}">${toggleButtonText}</button>
@@ -196,7 +196,16 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         // 即時報告ボタン
         else if (target.classList.contains('run-now-button')) {
-            console.log("Run now button action for", scheduleId); // ★デバッグログ追加
+            const isActive = button.dataset.isActive === 'true'; // Get status from the button
+            console.log("Run now button action for", scheduleId, "Is Active:", isActive); // Debug log
+
+            // Check if active BEFORE showing confirm dialog
+            if (!isActive) {
+                alert('タスクが有効化されていません。有効化してから報告してください。');
+                return; // Stop further execution
+            }
+
+            // Only show confirm if active
             if (confirm(`スケジュール ID: ${scheduleId} の報告を即時実行しますか？`)) {
                  console.log("Confirmed run now. Sending fetch request..."); // ★デバッグログ追加
                  // --- Add fetch call --- 

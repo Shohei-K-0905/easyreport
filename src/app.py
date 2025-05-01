@@ -519,11 +519,11 @@ def run_schedule_now(schedule_id):
 
     if not schedule:
         logger.warning(f"Immediate run failed: Schedule ID {schedule_id} not found.")
-        return jsonify({"status": "error", "message": "Schedule not found"}), 404
+        return jsonify({"status": "error", "message": "スケジュールが見つかりません"}), 404
 
     if not schedule.is_active:
         logger.warning(f"Attempted to run inactive schedule {schedule_id} immediately.")
-        return jsonify({"status": "error", "message": "Schedule is inactive"}), 400
+        return jsonify({"status": "error", "message": "タスクが有効化されていません。有効化してから報告してください。"}), 400
 
     logger.info(f"Executing actions immediately for schedule {schedule_id}")
     actions_executed = False
@@ -550,12 +550,12 @@ def run_schedule_now(schedule_id):
             if not mark_success:
                  logger.error(f"Failed to mark history for immediate run of schedule {schedule_id} even though actions succeeded.")
                  # Decide if this should be a 500 error or just a warning
-                 return jsonify({"status": "error", "message": "Failed to record completion in history."}), 500
+                 return jsonify({"status": "error", "message": "完了履歴の記録に失敗しました。"}), 500
     except Exception as e:
         logger.error(f"Error executing immediate run for schedule {schedule_id}: {e}", exc_info=True)
-        return jsonify({"status": "error", "message": "Error executing immediate run"}), 500
+        return jsonify({"status": "error", "message": "即時実行中にエラーが発生しました"}), 500
 
-    return jsonify({"status": "success", "message": f"Immediate report for schedule {schedule_id} initiated and completed."}), 200
+    return jsonify({"status": "success", "message": f"スケジュール {schedule_id} の即時報告を開始し、完了しました。"}), 200
 
 @app.route('/api/report_history')
 def get_report_history():
